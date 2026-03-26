@@ -26,8 +26,10 @@ Important note:
 
 The shared doc captures the cross-cutting v0 decisions, including:
 
-- append-only `MergeTree` storage across all five signals
+- append-only ClickHouse storage across all five signals, with `ReplacingMergeTree` for tracing and `MergeTree` for the other four signals
 - insert-only tracing with `span_events` plus `trace_roots`
+- tracing retry-idempotency via a tracing-only `dedupeKey`
+- non-tracing signals intentionally remaining non-idempotent under retries in v0
 - refreshable discovery helper tables
 - day-granularity retention
 - raw ClickHouse DDL as the source of schema definition
@@ -52,6 +54,7 @@ Use the shared doc for the common contract and the per-table docs for physical s
 3. Implement writes and reads for the five signals.
 4. Add targeted tests around the risky contract points:
    - tracing insert-only routing with ended-span-only persistence
+   - tracing dedupe behavior for retried `span_events` / `trace_roots` writes
    - `trace_roots` population from root-span inserts
    - discovery helper refresh behavior and staleness expectations
    - per-table ordering

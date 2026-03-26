@@ -23,13 +23,18 @@ Capture the cross-cutting decisions for ClickHouse `v-next` so the per-table doc
 
 ## Core v0 Model
 
-- use append-only `MergeTree` tables for all five signals
+- use append-only ClickHouse tables for all five signals
+- use `ReplacingMergeTree` for `span_events` and `trace_roots`
+- use plain `MergeTree` for `metric_events`, `log_events`, `score_events`, and `feedback_events`
 - use `insert-only` tracing routing in ClickHouse `v-next`
 - persist only create records for completed spans
 - normalize event spans so `endedAt = startedAt` when `isEvent = true` and `endedAt` is null before persistence
 - use `span_events` as the tracing write target and full-trace read table
 - use `trace_roots` as the root-span helper table for `listTraces` and `getRootSpan`
 - populate `trace_roots` from `span_events` with an incremental materialized view
+- make tracing retry-idempotent in v0 with a tracing-only `dedupeKey = traceId || ':' || spanId`
+- propagate the same tracing `dedupeKey` from `span_events` into `trace_roots`
+- do not add dedupe keys to `metric_events`, `log_events`, `score_events`, or `feedback_events` in v0
 - use `discovery_values` and `discovery_pairs` as refreshable helper tables for discovery
 - do not add physical `createdAt` or `updatedAt` columns to the `v-next` tables
 - use raw ClickHouse DDL for the `v-next` schema
@@ -38,6 +43,11 @@ Expected `observabilityStrategy` direction:
 
 - preferred: `insert-only`
 - supported: `insert-only`
+
+Adapter note:
+
+- the `v-next` ClickHouse observability domain should expose `observabilityStrategy`
+- `tracingStrategy` may remain as a deprecated compatibility alias, but `observabilityStrategy` is the property `DefaultExporter` uses
 
 ## Domain Layout
 
@@ -71,6 +81,9 @@ Important notes:
 - metrics, logs, scores, and feedback still flow as create-only batched writes
 - `insert-only` should keep started-span records out of the `batchCreateSpans` path in normal operation
 - `batchUpdateSpans` should remain unimplemented in ClickHouse `v-next`; normal tracing writes should rely on the insert-only create path only
+- tracing writes should compute and persist `dedupeKey = traceId || ':' || spanId` in the ClickHouse adapter before insert
+- tracing reads should return one row per `dedupeKey` without relying solely on background `ReplacingMergeTree` merges
+- non-tracing signals remain append-only and are not retry-idempotent in v0
 - the current shared record builders do not yet populate every typed field required by the `score_events` and `feedback_events` designs
 - that upstream score/feedback record-builder enrichment should land separately from the ClickHouse `v-next` storage PR
 
@@ -79,6 +92,7 @@ Important notes:
 ClickHouse `v-next` tracing behaves as follows in v0:
 
 - it stores and returns only completed spans and traces
+- it treats `(traceId, spanId)` as the logical tracing row identity in `span_events` and `trace_roots`
 - `status = running` may still exist in the shared public API, but ClickHouse `v-next` v0 should return no rows for that filter
 - trace listing and root-span filtering operate on root rows
 
@@ -91,6 +105,20 @@ Implementation tests should lock in the lack of live-running trace visibility ex
 - prefer public field names directly as ClickHouse column names when there is no real ambiguity inside the table
 - do not introduce rename layers such as `spanName`, `metricName`, `feedbackSource`, or `scoreSource` in v0
 - if a storage-specific rename ever becomes necessary later, keep it explicit and centralized
+
+### Tracing retry idempotency
+
+- `span_events` and `trace_roots` should each store a physical `dedupeKey: String`
+- in v0, `dedupeKey` is the natural tracing identity string `traceId || ':' || spanId`
+- `trace_roots.dedupeKey` should match the root row's `span_events.dedupeKey`
+- tracing DDL/query code should treat `dedupeKey` as the tracing row identity used to prevent duplicate rows from exporter retries
+- tracing tables should use `ReplacingMergeTree`, with `dedupeKey` participating in the sorting key for replacement identity
+- tracing read paths should still apply query-time dedupe semantics where needed so duplicate rows are not exposed before background merges complete
+- normal tracing reads should not rely on `FINAL` for correctness in v0
+- point lookups may read by tracing identity and use ordinary `LIMIT 1`
+- multi-row tracing reads should narrow the row set first, then use `LIMIT 1 BY dedupeKey`, then apply final presentation ordering
+- non-tracing signal tables do not get dedupe keys in v0
+- duplicate metrics, logs, scores, and feedback caused by retried writes are an accepted v0 limitation until a later event-id design exists
 
 ### Typed query-hot columns
 
@@ -197,7 +225,11 @@ Delete behavior:
 - assume eventual consistency for deletes
 - `dangerouslyClearAll` should use `TRUNCATE TABLE`
 - delete-style trace operations must apply to both `span_events` and `trace_roots`
+- trace deletes should target tracing rows by tracing identity, including `dedupeKey`, in both tables
 - the incremental materialized view feeding `trace_roots` does not make deletes or truncation propagate automatically
+- `batchDeleteTraces` should issue explicit lightweight deletes to both `span_events` and `trace_roots`
+- `dangerouslyClearAll` should explicitly truncate both `span_events` and `trace_roots`
+- `ReplacingMergeTree` on tracing tables does not change the eventual-consistency behavior of deletes
 - read-after-delete is not a strict correctness guarantee in ClickHouse `v-next` v0
 - delete-path tests should verify successful execution and eventual disappearance semantics rather than immediate absence
 
@@ -205,6 +237,7 @@ Retention behavior:
 
 - TTL should be configurable per signal in day increments
 - tracing retention should apply consistently to both `span_events` and `trace_roots`
+- tracing TTL configuration should be kept identical across `span_events` and `trace_roots`
 - day-based partitioning is the default physical strategy because it keeps day-granularity expiry and partition management straightforward
 - v0 is optimized for signal-level retention, not for retaining selected trace subsets longer than their source signal tables
 
@@ -217,10 +250,12 @@ Future requirements such as "keep traces with scores for 30 days but drop ordina
 - use one tracing helper structure in v0:
   - `trace_roots`
   - one incremental materialized view from `span_events` into `trace_roots`
+- use `ReplacingMergeTree` only for tracing tables that need retry-idempotency in v0
 - use two discovery helper structures in v0:
   - `discovery_values`
   - `discovery_pairs`
 - keep `hasChildError` query-derived in v0
+- define `hasChildError` as "any non-root span in the trace has `status = error`"
 - if `hasChildError` later becomes a concrete performance problem, prefer a refreshable trace-level helper structure over row-local denormalization on `span_events` or `trace_roots`
 
 ## Testing Expectations
@@ -229,6 +264,8 @@ At minimum, `v-next` tests should cover:
 
 - per-table write/read happy paths
 - tracing insert-only routing with ended-span-only persistence
+- tracing retry-idempotency via `dedupeKey` in `span_events` and `trace_roots`
+- tracing reads returning one row per `dedupeKey` before background merges complete
 - `trace_roots` materialized-view population
 - discovery helper refresh behavior
 - per-table `ORDER BY` expectations where testable

@@ -39,6 +39,16 @@ Refreshable helper tables are preferred here because they recompute the current 
 - `entityType -> entityName`
 - `metricName + labelKey -> labelValue`
 
+Physical direction in v0:
+
+- `discovery_values` should use `ENGINE = MergeTree`
+- `discovery_values` should not use partitioning in v0
+- `discovery_values` should use `ORDER BY (kind, key1, value)`
+- `discovery_pairs` should use `ENGINE = MergeTree`
+- `discovery_pairs` should not use partitioning in v0
+- `discovery_pairs` should use `ORDER BY (kind, key1, key2, value)`
+- discovery helper tables are fully derived structures; refresh is the consistency mechanism rather than table-local TTL
+
 ### `discovery_values` dimension semantics
 
 - `kind = entityType`
@@ -210,3 +220,4 @@ Delete and TTL behavior:
 - lightweight deletes and TTL expiry in the source tables are reflected in discovery on the next successful refresh
 - discovery helpers do not need incremental delete propagation in v0
 - discovery freshness after delete or TTL expiry is bounded by refresh cadence rather than immediate read-after-delete guarantees
+- discovery helper tables do not need their own TTL in v0 because they are fully derived from the source tables

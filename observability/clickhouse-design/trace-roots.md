@@ -11,10 +11,12 @@ Define the logical shape, physical shape, and query contract for `trace_roots`, 
 - only completed root spans should be inserted into `trace_roots`
 - it stays close to the root-row shape rather than collapsing into a minimal summary row
 - application writes continue targeting `span_events`; `trace_roots` is a helper table, not a replacement
+- delete, truncate, and TTL behavior must be managed explicitly on `trace_roots`; they do not propagate from `span_events`
 
 ## Logical Shape
 
 - keep essentially the same logical shape as a root row in `span_events`
+- include `dedupeKey`, matching the root row's `span_events.dedupeKey`
 - include the same root-facing typed columns used by the public trace filter surface
 - include the same root payload fields needed for trace-list UI display so `listTraces` does not need a second hydration read in v0
 - `parentSpanId` remains present and is always `null`
@@ -23,15 +25,18 @@ Define the logical shape, physical shape, and query contract for `trace_roots`, 
 
 ## Physical Shape
 
-- `ENGINE = MergeTree`
+- `ENGINE = ReplacingMergeTree`
 - `PARTITION BY toDate(endedAt)`
-- `ORDER BY (startedAt, traceId)`
+- `ORDER BY (startedAt, traceId, dedupeKey)`
 
 Notes:
 
 - optimize `trace_roots` for the default `listTraces` read pattern, which orders by `startedAt`
 - keep partitioning aligned with `span_events` on `endedAt` so tracing TTL can be managed consistently across both tables
 - the incremental materialized view should project only `parentSpanId IS NULL` rows from `span_events`
+- the incremental materialized view should carry through the root row's `dedupeKey`
+- `ORDER BY (startedAt, traceId, dedupeKey)` keeps the list-oriented sort while making `dedupeKey` part of the replacement identity
+- because this is an incremental materialized-view target, deletes and truncation must be issued directly against `trace_roots`
 
 ## Query Contract
 
@@ -40,7 +45,12 @@ Notes:
 - all root-span-oriented trace filters other than `hasChildError` are evaluated against `trace_roots`
 - `status = running` returns no rows
 - trace `metadata` filters target `metadataSearch`
-- when `hasChildError` is present, the query may use `span_events` for the child-span existence check while still using `trace_roots` as the main listing source
+- when `hasChildError` is present, the query should use `span_events` for the child-span existence check while still using `trace_roots` as the main listing source
+- `hasChildError` means that some non-root span in the same trace has `status = error`
+- `getRootSpan` should filter by root tracing identity and use ordinary `LIMIT 1`
+- `listTraces` should narrow the candidate root row set first, then use `LIMIT 1 BY dedupeKey`, then apply final presentation ordering
+- `batchDeleteTraces` should issue a matching lightweight delete against `trace_roots`
+- `dangerouslyClearAll` should explicitly truncate `trace_roots`
 
 If `hasChildError` later needs optimization, prefer a refreshable trace-level helper structure rather than storing it directly on `trace_roots`.
 

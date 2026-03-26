@@ -26,6 +26,7 @@ Important note:
 
 ## `span_events`
 
+- `dedupeKey`: `String`
 - `traceId`: `String`
 - `spanId`: `String`
 - `parentSpanId`: `Nullable(String)`
@@ -65,9 +66,11 @@ Read-path notes:
 - returned span `metadata` should be reconstructed from `metadataRaw`
 - returned span `createdAt` should be populated as `startedAt`
 - returned span `updatedAt` should be `null` in v0
+- `dedupeKey` should use the natural tracing identity string `traceId || ':' || spanId`
 
 ## `trace_roots`
 
+- `dedupeKey`: `String`
 - `traceId`: `String`
 - `spanId`: `String`
 - `parentSpanId`: `Nullable(String)`
@@ -106,6 +109,7 @@ Read-path notes:
 
 - `trace_roots` should remain close enough to the root-span shape that `listTraces` can return root records directly in v0
 - returned trace-root `metadata` should be reconstructed from `metadataRaw`
+- `trace_roots.dedupeKey` should match the root row's `span_events.dedupeKey`
 
 ## `metric_events`
 
@@ -235,6 +239,7 @@ Important note:
 - `kind` identifies the logical lookup family such as `entityType`, `serviceName`, `environment`, `tag`, `metricName`, or `metricLabelKey`
 - `scope` identifies the source family such as `cross-signal` or `metric`
 - `key1` should be used only when the value depends on one parent key in v0, such as metric name for metric label keys
+- physical v0 direction: `ENGINE = MergeTree`, no partitioning, `ORDER BY (kind, key1, value)`
 
 ## `discovery_pairs`
 
@@ -249,3 +254,4 @@ Important note:
 - `kind` identifies the logical pair family such as `entityTypeName` or `metricLabelValue`
 - `key1` should store the primary lookup key such as entity type or metric name
 - `key2` should store the secondary lookup key when needed, such as metric label key
+- physical v0 direction: `ENGINE = MergeTree`, no partitioning, `ORDER BY (kind, key1, key2, value)`

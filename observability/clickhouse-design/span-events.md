@@ -11,6 +11,7 @@ Define the logical shape, physical shape, and query contract for `span_events`, 
 - normalize event spans so `endedAt = startedAt` when `isEvent = true` and `endedAt` is null before persistence
 - persist the resulting row directly; do not store `eventType`
 - each stored row represents the final ended span state
+- store `dedupeKey = traceId || ':' || spanId` as the tracing row identity in v0
 
 This intentionally diverges from DuckDB's start/end event model.
 
@@ -27,6 +28,7 @@ This intentionally diverges from DuckDB's start/end event model.
 
 IDs:
 
+- `dedupeKey`
 - `traceId`
 - `spanId`
 - `parentSpanId`
@@ -92,7 +94,8 @@ Event spans:
 
 - event spans are stored as zero-duration spans in ClickHouse
 - they should still be written from `SPAN_ENDED` tracing events even if the exported span shape does not carry a real end time
-- if preserving the current public contract matters on reads, ClickHouse can map normalized event spans back to `endedAt = null`
+- `isEvent` is the canonical read-time indicator that a row is an event span
+- v0 does not require event spans to read back with `endedAt = null`
 
 Read-path shaping:
 
@@ -132,15 +135,17 @@ If future ClickHouse version support makes native JSON columns practical, revisi
 
 ## Physical Shape
 
-- `ENGINE = MergeTree`
+- `ENGINE = ReplacingMergeTree`
 - `PARTITION BY toDate(endedAt)`
-- `ORDER BY (traceId, endedAt, spanId)`
+- `ORDER BY (traceId, endedAt, spanId, dedupeKey)`
 
 Notes:
 
 - `PARTITION BY toDate(endedAt)` keeps the physical layout aligned with the ended-span storage model
 - it also keeps day-granularity TTL and partition expiry practical for tracing retention
-- `ORDER BY (traceId, endedAt, spanId)` prioritizes full-trace reads and point lookups within a trace
+- `ORDER BY (traceId, endedAt, spanId, dedupeKey)` prioritizes full-trace reads and point lookups within a trace while making `dedupeKey` part of the replacement identity
+- `dedupeKey` should be persisted with every row so tracing writes can be retried idempotently in v0
+- read-path correctness should not rely solely on background merges; tracing queries should still return one row per `dedupeKey`
 - `status`, `spanType`, `entityType`, `environment`, `source`, and `serviceName` are strong `LowCardinality` candidates
 
 ## Query Contract
@@ -151,6 +156,8 @@ Routing:
 - `getTrace` reads from `span_events`
 - `getRootSpan` reads from `trace_roots`
 - `listTraces` reads from `trace_roots`
+- `getSpan` should filter by tracing identity (`dedupeKey` or `(traceId, spanId)`) and use ordinary `LIMIT 1`
+- `getTrace` should narrow the trace row set first, then use `LIMIT 1 BY dedupeKey`, then apply final presentation ordering
 
 Trace filter behavior:
 
@@ -159,8 +166,10 @@ Trace filter behavior:
 
 `hasChildError`:
 
-- compute it at query time as "any span in the same trace has `status = error`"
+- compute it at query time as "any non-root span in the same trace has `status = error`"
+- exclude the root span itself from the `hasChildError` check
 - do not store a dedicated helper column on `span_events` in v0
+- this is a slower query-derived path in v0 and may require checking child-span existence from `trace_roots`-driven trace listing queries
 - if it later needs optimization, prefer a refreshable trace-level helper structure rather than row-local denormalization
 
 ## Intentional v0 Limitations
@@ -171,3 +180,4 @@ Trace filter behavior:
 - no nested metadata filtering
 - no scope filtering
 - no metadata grouping or discovery from `metadataRaw`
+- non-tracing tables remain non-idempotent in v0; retry-idempotency is limited to `span_events` / `trace_roots`
