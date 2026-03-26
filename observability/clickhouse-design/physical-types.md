@@ -105,7 +105,8 @@ Read-path notes:
 
 Read-path notes:
 
-- `trace_roots` should remain close enough to the root-span shape that `listTraces` can return root records directly in v0
+- `trace_roots` should retain the root-row fields needed to serve `listTraces` directly in v0
+- any broader resemblance to a full root-span row is an acceptable v0 simplicity tradeoff, not the primary design goal
 - returned trace-root `metadata` should be reconstructed from `metadataRaw`
 - `trace_roots.dedupeKey` should match the root row's `span_events.dedupeKey`
 
@@ -185,13 +186,7 @@ Read-path notes:
 - `spanId`: `Nullable(String)`
 - `experimentId`: `Nullable(String)`
 - `scoreTraceId`: `Nullable(String)`
-- `entityType`: `LowCardinality(Nullable(String))`
-- `entityId`: `Nullable(String)`
-- `entityName`: `Nullable(String)`
-- `userId`: `Nullable(String)`
 - `organizationId`: `Nullable(String)`
-- `environment`: `LowCardinality(Nullable(String))`
-- `serviceName`: `LowCardinality(Nullable(String))`
 - `scorerId`: `LowCardinality(String)`
 - `scorerVersion`: `LowCardinality(Nullable(String))`
 - `source`: `LowCardinality(Nullable(String))`
@@ -207,12 +202,7 @@ Read-path notes:
 - `experimentId`: `Nullable(String)`
 - `userId`: `Nullable(String)`
 - `sourceId`: `Nullable(String)`
-- `entityType`: `LowCardinality(Nullable(String))`
-- `entityId`: `Nullable(String)`
-- `entityName`: `Nullable(String)`
 - `organizationId`: `Nullable(String)`
-- `environment`: `LowCardinality(Nullable(String))`
-- `serviceName`: `LowCardinality(Nullable(String))`
 - `source`: `LowCardinality(String)`
 - `feedbackType`: `LowCardinality(String)`
 - `valueString`: `Nullable(String)`

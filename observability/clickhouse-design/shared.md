@@ -28,9 +28,10 @@ Capture the cross-cutting decisions for ClickHouse `v-next` so the per-table doc
 - use plain `MergeTree` for `metric_events`, `log_events`, `score_events`, and `feedback_events`
 - use `insert-only` tracing routing in ClickHouse `v-next`
 - persist only create records for completed spans
+- treat scores and feedback as trace-attached annotations in v0 rather than standalone cross-signal event streams
 - normalize event spans so `endedAt = startedAt` when `isEvent = true` and `endedAt` is null before persistence
 - use `span_events` as the tracing write target and full-trace read table
-- use `trace_roots` as the root-span helper table for `listTraces` and `getRootSpan`
+- use `trace_roots` as the `listTraces` helper table in v0
 - populate `trace_roots` from `span_events` with an incremental materialized view
 - make tracing retry-idempotent in v0 with a tracing-only `dedupeKey = traceId || ':' || spanId`
 - propagate the same tracing `dedupeKey` from `span_events` into `trace_roots`
@@ -85,8 +86,10 @@ Important notes:
 - tracing writes should compute and persist `dedupeKey = traceId || ':' || spanId` in the ClickHouse adapter before insert
 - tracing reads should return one row per `dedupeKey` without relying solely on background `ReplacingMergeTree` merges
 - non-tracing signals remain append-only and are not retry-idempotent in v0
-- the current shared record builders do not yet populate every typed field required by the `score_events` and `feedback_events` designs
-- that upstream score/feedback record-builder enrichment should land separately from the ClickHouse `v-next` storage PR
+- score/feedback schema design should stay aligned to the current narrow public score/feedback contracts rather than introducing extra typed context columns for symmetry with spans or logs
+- score/feedback adapter writes may promote `organizationId` from top-level `metadata.organizationId` when it exists as a string, similar to how tracing promotes selected metadata keys into typed columns
+- feedback adapter writes may also promote `userId` from top-level `metadata.userId` when it exists as a string
+- any remaining score/feedback write-path alignment work should be limited to fields already present in those public contracts plus these adapter-level promotion rules
 
 ## v0 Trace Behavior
 
@@ -242,8 +245,13 @@ Intentional v0 decisions:
 - discovery queries should read from dedicated helper tables rather than scanning the signal tables directly
 - maintain `discovery_values` and `discovery_pairs` with refreshable materialized views in v0
 - discovery is intentionally eventually consistent in v0
-- discovery support in v0 assumes the target ClickHouse environment supports refreshable materialized views
-- if that capability is unavailable, `v-next` should fail discovery setup rather than silently degrade to base-table scans or empty discovery responses
+- discovery is a best-effort helper subsystem in v0, not a startup requirement for core observability
+- discovery support in v0 prefers target ClickHouse environments that support refreshable materialized views
+- if that capability is unavailable, `v-next` should mark discovery unavailable rather than fail the base observability adapter
+- if discovery setup or refresh fails, core writes and core reads for spans, metrics, logs, scores, and feedback should continue to work
+- discovery bootstrap and scheduled refresh should run automatically when discovery is enabled
+- before the first successful discovery refresh, discovery methods should return empty results rather than explicit unavailable/not-initialized errors
+- do not silently fall back to base-table scans for discovery when helper tables are unavailable
 - scores and feedback should not be forced into cross-signal entity discovery just for symmetry
 
 ## Deletes And Retention

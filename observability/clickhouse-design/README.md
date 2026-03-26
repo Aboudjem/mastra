@@ -29,9 +29,10 @@ The shared doc captures the cross-cutting v0 decisions, including:
 - append-only ClickHouse storage across all five signals, with `ReplacingMergeTree` for tracing and `MergeTree` for the other four signals
 - insert-only tracing with `span_events` plus `trace_roots`
 - tracing retry-idempotency via a tracing-only `dedupeKey`
+- score and feedback storage being intentionally trace-attached rather than modeled as standalone cross-signal event streams
 - intentionally narrowed v0 ClickHouse trace-filter semantics: top-level string-only metadata equality via `metadataSearch`, and no trace `scope` filtering
 - non-tracing signals intentionally remaining non-idempotent under retries in v0
-- refreshable discovery helper tables, with fail-fast setup if the required ClickHouse feature support is unavailable
+- refreshable discovery helper tables as a best-effort optional subsystem, not a startup requirement for the core observability adapter
 - day-granularity retention
 - raw ClickHouse DDL as the source of schema definition
 

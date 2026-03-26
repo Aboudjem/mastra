@@ -2,15 +2,17 @@
 
 ## Purpose
 
-Define the logical shape, physical shape, and query contract for `trace_roots`, the root-span helper table used by ClickHouse `v-next` trace-listing queries.
+Define the logical shape, physical shape, and query contract for `trace_roots`, the root-span helper table used by ClickHouse `v-next` `listTraces` queries.
 
 ## Role In v0
 
 - `trace_roots` is a normal ClickHouse table
 - it is populated incrementally from `span_events` by a materialized view
 - only completed root spans should be inserted into `trace_roots`
-- it stays close to the root-row shape rather than collapsing into a minimal summary row
+- it is shaped first around `listTraces`, not around generic root-span caching
+- it stays close to the root-row shape in v0 because that keeps trace-list filtering and display simple
 - application writes continue targeting `span_events`; `trace_roots` is a helper table, not a replacement
+- `getRootSpan` may continue using `trace_roots` in v0 as a compatibility path, but it is not the design driver for this table
 - delete, truncate, and TTL behavior must be managed explicitly on `trace_roots`; they do not propagate from `span_events`
 
 ## Logical Shape
@@ -18,7 +20,8 @@ Define the logical shape, physical shape, and query contract for `trace_roots`, 
 - keep essentially the same logical shape as a root row in `span_events`
 - include `dedupeKey`, matching the root row's `span_events.dedupeKey`
 - include the same root-facing typed columns used by the public trace filter surface
-- include the same root payload fields needed for trace-list UI display so `listTraces` does not need a second hydration read in v0
+- include the root payload fields needed for trace-list UI display so `listTraces` does not need a second hydration read in v0
+- carrying additional root-row fields in v0 is acceptable for implementation simplicity, but `listTraces` remains the reason this table exists
 - `parentSpanId` remains present and is always `null`
 - use the same `metadataRaw` / `metadataSearch` split as `span_events`
 - do not store a dedicated `hasChildError` column in v0
@@ -33,6 +36,7 @@ Notes:
 
 - optimize `trace_roots` for the default `listTraces` read pattern, which orders by `startedAt`
 - keep partitioning aligned with `span_events` on `endedAt` so tracing TTL can be managed consistently across both tables
+- this is an intentional v0 tradeoff: partition pruning is not perfectly aligned to started-time listing filters, but retention alignment wins over that optimization in v0
 - the incremental materialized view should project only `parentSpanId IS NULL` rows from `span_events`
 - the incremental materialized view should carry through the root row's `dedupeKey`
 - `ORDER BY (startedAt, traceId, dedupeKey)` keeps the list-oriented sort while making `dedupeKey` part of the replacement identity
@@ -42,7 +46,7 @@ Notes:
 ## Query Contract
 
 - `listTraces` reads from `trace_roots`
-- `getRootSpan` reads from `trace_roots`
+- `getRootSpan` may read from `trace_roots` in v0 as a compatibility path, but it is not the physical-design driver for this table and may be deprecated later
 - all root-span-oriented trace filters other than `hasChildError` are evaluated against `trace_roots`
 - trace status filtering is derived from the root row rather than a stored `status` column:
   - `status = error` means `error IS NOT NULL`
@@ -53,7 +57,7 @@ Notes:
 - trace `scope` filtering is intentionally unsupported in v0
 - when `hasChildError` is present, the query should use `span_events` for the child-span existence check while still using `trace_roots` as the main listing source
 - `hasChildError` means that some non-root span in the same trace has `error IS NOT NULL`
-- `getRootSpan` should filter by root tracing identity and use ordinary `LIMIT 1`
+- if `getRootSpan` remains wired to `trace_roots` in v0, it should filter by root tracing identity and use ordinary `LIMIT 1`
 - `listTraces` should use a two-stage query shape:
   - inner query: narrow the candidate root row set first, apply a deterministic pre-dedupe `ORDER BY`, then use `LIMIT 1 BY dedupeKey`
   - outer query: apply final presentation ordering and pagination over the deduplicated root row set
@@ -70,4 +74,4 @@ If `hasChildError` later needs optimization, prefer a refreshable trace-level he
 - no live or running trace visibility
 - no stored `hasChildError`
 - no scope filtering
-- no dedicated summary-only schema for `trace_roots`; v0 favors direct root-row usability over maximal storage minimization
+- no dedicated summary-only schema for `trace_roots`; v0 favors `listTraces` simplicity over maximal storage minimization

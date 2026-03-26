@@ -20,7 +20,8 @@ This intentionally diverges from DuckDB's start/end event model.
 - a trace is the set of spans sharing the same `traceId`
 - the root span is the span whose `parentSpanId` is `null`
 - `span_events` owns `getTrace` and `getSpan`
-- `trace_roots` owns `listTraces`, `getRootSpan`, and the root-span listing/filtering path
+- `trace_roots` owns `listTraces` and the root-span listing/filtering path
+- `getRootSpan` may continue reading from `trace_roots` in v0 as a secondary compatibility path, but it is not the design driver for that table
 - trace-level filters should be evaluated against `trace_roots` unless the filter is explicitly aggregate behavior such as `hasChildError`
 - in v0, trace tag behavior should be treated as root-span behavior; non-root span tags are not part of the trace-listing contract
 
@@ -159,8 +160,8 @@ Routing:
 
 - `getSpan` reads from `span_events`
 - `getTrace` reads from `span_events`
-- `getRootSpan` reads from `trace_roots`
 - `listTraces` reads from `trace_roots`
+- `getRootSpan` may read from `trace_roots` in v0, but it is a secondary compatibility path rather than the physical-design driver
 - `getSpan` should filter by `(traceId, spanId)` and use ordinary `LIMIT 1`
 - `getTrace` should use a two-stage query shape:
   - inner query: filter to the trace row set, apply a deterministic pre-dedupe `ORDER BY`, then use `LIMIT 1 BY dedupeKey`

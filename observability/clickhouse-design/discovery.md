@@ -17,13 +17,21 @@ Define the helper-table shape, refresh behavior, and endpoint mapping for ClickH
 
 Refreshable helper tables are preferred here because they recompute the current set after deletes and TTL expiry.
 
+Discovery is a best-effort helper feature in v0:
+
+- it does not need to exist at adapter startup
+- it does not gate core observability reads or writes
+- helper tables and refreshable views may be created later
+- bootstrap and scheduled refresh should run automatically when discovery is enabled
+- until discovery has been initialized and refreshed successfully, discovery methods should return empty results
+- do not silently fall back to base-table scans when discovery helpers are unavailable
+
 ## Assumed ClickHouse Feature Set
 
-- assume the target Cloud ClickHouse deployment supports refreshable materialized views for the v0 discovery design
+- prefer target Cloud ClickHouse deployments that support refreshable materialized views for the v0 discovery design
 - assume `ARRAY JOIN`, `mapKeys()`, direct `Map` key lookup, and the `LowCardinality(...)`, `Map(...)`, and `Array(...)` types used elsewhere in the design are available
-- if refreshable materialized views are not available in the target environment, this discovery design does not apply as written
-- `v-next` should treat refreshable materialized-view support as a required runtime capability for discovery in v0
-- adapter initialization should fail fast rather than silently falling back to base-table scans or empty discovery behavior when that capability is missing
+- if refreshable materialized views are not available in the target environment, discovery should be marked unavailable in v0 rather than forcing a different implementation path
+- `v-next` should treat refreshable materialized-view support as a discovery capability, not a required runtime capability for the whole observability adapter
 
 ## Helper Tables
 
@@ -212,10 +220,11 @@ The current discovery API does not expose time-range filters. Refresh queries ma
 
 Bootstrap and staleness behavior:
 
-- after creating the helper tables and refreshable materialized views, initialization should trigger an immediate manual refresh for both discovery tables
-- successful bootstrap requires that first manual refresh to succeed for both discovery tables
-- without that initial refresh, the discovery tables may remain empty until the first scheduled refresh completes
-- `init()` should fail closed if discovery bootstrap refresh fails; do not mark discovery as healthy while serving known-empty helper tables
+- discovery bootstrap is optional and may happen after adapter startup
+- after creating the helper tables and refreshable materialized views, bootstrap should trigger an immediate refresh for both discovery tables automatically when possible
+- successful discovery bootstrap requires that first refresh to succeed for both discovery tables before discovery is treated as populated
+- without that initial refresh, the discovery tables may remain empty until the first scheduled refresh completes, and discovery methods should continue returning empty results during that window
+- bootstrap failure should not fail the base observability adapter; discovery methods should continue returning empty results until a later refresh succeeds
 - after bootstrap, discovery remains eventually consistent and readers should continue seeing the last successful refresh snapshot
 - if a scheduled refresh is slow or fails, discovery data may stay stale beyond the nominal refresh interval
 - after at least one successful bootstrap refresh, later scheduled-refresh failures should leave the last successful snapshot in place rather than clearing discovery
