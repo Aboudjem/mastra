@@ -1,16 +1,10 @@
 # ClickHouse vNext Observability Physical Types
 
-## Status
-
-Working physical type and nullability matrix for ClickHouse `v-next`.
-
 ## Purpose
 
 Define the concrete ClickHouse column types and nullability direction for the `v-next` observability tables so DDL work is mechanical rather than inferred during implementation.
 
 ## Shared Conventions
-
-Current v0 direction:
 
 - event and span timestamps should use `DateTime64(3, 'UTC')`
 - required textual identifiers should use `String`

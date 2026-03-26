@@ -1,60 +1,54 @@
 # ClickHouse vNext Observability Discovery Design
 
-## Status
-
-Working discovery design for the ClickHouse `v-next` observability domain.
-
 ## Purpose
 
-Define the discovery endpoints, table coverage, and query behavior for ClickHouse `v-next`.
+Define the helper-table shape, refresh behavior, and endpoint mapping for ClickHouse `v-next` discovery.
 
-## v0 Direction
+## v0 Model
 
-- discovery should read from two dedicated helper tables:
+- discovery reads from two dedicated helper tables:
   - `discovery_values`
   - `discovery_pairs`
-- both discovery helper tables should be maintained by refreshable materialized views
+- both helper tables are normal ClickHouse tables maintained by refreshable materialized views
+- do not feed them incrementally from insert-time materialized views in v0
+- discovery is intentionally eventually consistent
 - do not add discovery over JSON payloads in v0
 - do not force scores or feedback into cross-signal discovery just for symmetry
 
+Refreshable helper tables are preferred here because they recompute the current set after deletes and TTL expiry.
+
 ## Helper Tables
 
-Current v0 direction:
+`discovery_values` stores de-duplicated unique values for:
 
-- `discovery_values` should store de-duplicated unique values for:
-  - `entityType`
-  - `serviceName`
-  - `environment`
-  - `tag`
-  - `metricName`
-  - metric `labelKey`
-- `discovery_pairs` should store de-duplicated key-value style lookups for:
-  - `entityType -> entityName`
-  - `metricName + labelKey -> labelValue`
+- `entityType`
+- `serviceName`
+- `environment`
+- `tag`
+- `metricName`
+- metric `labelKey`
 
-Important note:
+`discovery_pairs` stores de-duplicated key-value style lookups for:
 
-- `discovery_values` and `discovery_pairs` should be normal tables refreshed from source queries
-- they should not be fed incrementally from insert-time materialized views in v0
-- refreshable materialized views are the preferred v0 mechanism because they recompute the current set after deletes and TTL expiry
+- `entityType -> entityName`
+- `metricName + labelKey -> labelValue`
 
 ## Refresh Cadence
 
-Current v0 direction:
+Starting defaults:
 
-- start with `discovery_values` refreshed every 1 minute
-- start with `discovery_pairs` refreshed every 5 minutes
-- treat those intervals as product defaults, not hard architectural requirements
+- refresh `discovery_values` every 1 minute
+- refresh `discovery_pairs` every 5 minutes
 
-Important note:
+Rationale:
 
-- `discovery_values` is expected to back the most common lightweight UI pickers, so it should refresh more frequently
-- `discovery_pairs` is expected to be larger and less latency-sensitive, so it can refresh less often in v0
-- discovery should be explicitly eventually consistent in v0
+- `discovery_values` backs the most common lightweight UI pickers, so it should refresh more frequently
+- `discovery_pairs` is expected to be larger and less latency-sensitive
+- treat these as product defaults, not hard architectural requirements
 
-## Public Discovery API
+## Endpoint Mapping
 
-Current storage API discovery endpoints are:
+Current discovery endpoints:
 
 - `getEntityTypes`
 - `getEntityNames`
@@ -65,63 +59,28 @@ Current storage API discovery endpoints are:
 - `getMetricLabelKeys`
 - `getMetricLabelValues`
 
-Current API argument surface:
+Entity and service discovery:
 
-- `getEntityTypes()`
-- `getEntityNames({ entityType? })`
-- `getServiceNames()`
-- `getEnvironments()`
-- `getTags({ entityType? })`
-- `getMetricNames({ prefix?, limit? })`
-- `getMetricLabelKeys({ metricName })`
-- `getMetricLabelValues({ metricName, labelKey, prefix?, limit? })`
+- `getEntityTypes` reads from `discovery_values` where `kind = entityType`
+- `getEntityNames` reads from `discovery_pairs` where `kind = entityTypeName`
+- when `entityType` is provided to `getEntityNames`, filter by the stored entity-type key before ordering and limit
+- `getServiceNames` reads from `discovery_values` where `kind = serviceName`
+- `getEnvironments` reads from `discovery_values` where `kind = environment`
 
-## Cross-Signal Discovery
+Tag discovery:
 
-Cross-signal discovery should operate over the discovery helper tables in v0:
+- `getTags` reads from `discovery_values` where `kind = tag`
+- when `entityType` is provided to `getTags`, filter on the stored entity-type dimension before ordering and limit
 
-- `discovery_values`
-- `discovery_pairs`
+Metric discovery:
 
-### Entity discovery
+- `getMetricNames` reads from `discovery_values` where `kind = metricName`
+- apply `prefix` before ordering and `limit` after ordering
+- `getMetricLabelKeys` reads from `discovery_values` where `kind = metricLabelKey` and metric name matches
+- `getMetricLabelValues` reads from `discovery_pairs` where `kind = metricLabelValue`, metric name matches, and label key matches
+- apply `prefix` to metric label values before ordering and `limit` after ordering
 
-Current v0 direction:
-
-- `getEntityTypes` should read from `discovery_values` rows where kind = `entityType`
-- `getEntityNames` should read from `discovery_pairs` rows where kind = `entityTypeName`
-- when `entityType` is provided to `getEntityNames`, it should filter `discovery_pairs` by the stored entity type key before ordering/limit
-
-### Service/environment discovery
-
-Current v0 direction:
-
-- `getServiceNames` should read from `discovery_values` rows where kind = `serviceName`
-- `getEnvironments` should read from `discovery_values` rows where kind = `environment`
-
-### Tag discovery
-
-Current v0 direction:
-
-- `getTags` should read from `discovery_values` rows where kind = `tag`
-- when `entityType` is provided to `getTags`, it should filter on the stored entity type dimension before ordering/limit
-
-## Metric Discovery
-
-Metric-specific discovery should operate on the discovery helper tables rather than directly on `metric_events`.
-
-Current v0 direction:
-
-- `getMetricNames` should read from `discovery_values` rows where kind = `metricName`
-- `prefix` should apply as a value prefix filter before ordering
-- `limit` should apply after ordering
-- `getMetricLabelKeys` should read from `discovery_values` rows where kind = `metricLabelKey` and metric name matches
-- `getMetricLabelValues` should read from `discovery_pairs` rows where kind = `metricLabelValue`, metric name matches, and label key matches
-- `prefix` on `getMetricLabelValues` should apply before ordering
-- `limit` on `getMetricLabelValues` should apply after ordering
-
-## Explicit Non-Goals
-
-Current v0 direction:
+## Non-Goals
 
 - no discovery over `metadata`
 - no discovery over `scope`
@@ -132,4 +91,4 @@ Current v0 direction:
 
 ## Operational Note
 
-The current discovery API does not expose time-range filters for these endpoints. Inference: discovery helper refresh queries may still scan broad source ranges, but query-time endpoint cost should no longer depend on scanning the observability base tables directly. That is the intended v0 tradeoff.
+The current discovery API does not expose time-range filters. Refresh queries may still scan broad source ranges, but query-time endpoint cost should no longer depend on scanning the observability base tables directly. That is the intended v0 tradeoff.

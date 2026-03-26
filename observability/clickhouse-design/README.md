@@ -1,12 +1,8 @@
 # ClickHouse vNext Observability Design
 
-## Status
-
-Working design index for the new ClickHouse observability domain under `stores/clickhouse/src/storage/domains/observability/v-next/`.
-
 ## Purpose
 
-This file is now the overview and entry point for the ClickHouse `v-next` observability design. The detailed design has been split into one shared document plus one document per table so implementation decisions are easier to find and maintain.
+Use this file as the entry point for the ClickHouse `v-next` observability design. Cross-cutting decisions live in the shared doc; table-specific behavior lives in the per-table docs.
 
 Important note:
 
@@ -28,26 +24,21 @@ Important note:
 
 ## Core v0 Decisions
 
-- ClickHouse `v-next` should use append-only storage for all five signals.
-- ClickHouse `v-next` v0 should follow ClickHouse best practices wherever practical instead of inheriting design constraints from DuckDB or other storage backends.
-- ClickHouse `v-next` should use `insert-only` exporter routing semantics for tracing.
-- ClickHouse `v-next` v0 should store only completed spans.
-- ClickHouse `v-next` v0 should persist only tracing create events corresponding to completed spans.
-- ClickHouse `v-next` v0 should not support live/running trace visibility.
+- use append-only storage for all five signals
+- prefer ClickHouse-native design choices over inheriting constraints from DuckDB or other backends
+- use `insert-only` exporter routing for tracing
+- store and return only completed spans and traces in v0
 - tracing should use two physical tables in v0:
   - `span_events` for full-trace reads
   - `trace_roots` for root-span listing/filtering
-- `trace_roots` should be a normal table populated from `span_events` by an incremental materialized view.
+- populate `trace_roots` from `span_events` with an incremental materialized view
 - discovery should use two refreshable helper tables in v0:
   - `discovery_values` for unique-value lookups
   - `discovery_pairs` for key-value lookups
-- TTL/retention should be configurable per signal in day increments.
-- `span_events` should store `startedAt`, `endedAt`, and a typed `status`.
-- `span_events` should keep original metadata in `metadataRaw` and a separate searchable string-string map in `metadataSearch`.
-- `metric_events` should not store a `status` column in v0.
-- Per-table physical design should be defined per table, not through one shared `ORDER BY`.
-- Raw ClickHouse DDL should be used for `v-next` base tables.
-- ClickHouse semantics should be the primary reference for `v-next`; DuckDB is a parity reference, not the source of truth.
+- configure TTL/retention per signal in day increments
+- keep per-table physical design decisions per table rather than forcing one shared `ORDER BY`
+- use raw ClickHouse DDL for the `v-next` tables
+- treat ClickHouse semantics as the primary design reference; DuckDB is a parity reference, not the source of truth
 
 ## Scope
 
@@ -63,7 +54,7 @@ Important note:
 ## Rollout Order
 
 1. Finalize the shared and per-table docs.
-2. Implement raw ClickHouse DDL for the five signal tables plus tracing/discovery helper tables and their materialized views.
+2. Implement raw ClickHouse DDL for the five signal tables, `trace_roots`, `discovery_values`, `discovery_pairs`, and their materialized views.
 3. Implement writes and reads for the five signals.
 4. Add targeted tests around the risky contract points:
    - tracing insert-only routing with ended-span-only persistence

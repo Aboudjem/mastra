@@ -1,27 +1,23 @@
 # ClickHouse vNext Log Events Design
 
-## Status
-
-Working table design for `log_events`.
-
 ## Purpose
 
-Define the logical shape, physical shape, and query contract for ClickHouse `v-next` log storage.
+Define the logical shape, physical shape, and query contract for `log_events`.
 
 ## Logical Shape
 
-### Event metadata
+Event metadata:
 
 - `timestamp`
 - `level`
 
-### IDs
+Correlation and experiment ids:
 
 - `traceId`
 - `spanId`
 - `experimentId`
 
-### Entity hierarchy
+Entity hierarchy:
 
 - `entityType`
 - `entityId`
@@ -33,7 +29,7 @@ Define the logical shape, physical shape, and query contract for ClickHouse `v-n
 - `rootEntityId`
 - `rootEntityName`
 
-### Context
+Context:
 
 - `userId`
 - `organizationId`
@@ -46,73 +42,38 @@ Define the logical shape, physical shape, and query contract for ClickHouse `v-n
 - `source`
 - `serviceName`
 
-### Log-specific scalars
+Log-specific scalars:
 
 - `message`
 
-### Information-only payloads
+Flexible and JSON payloads:
 
+- `tags`
 - `data`
 - `metadata`
 - `scope`
 
-### Query-relevant flexible fields
-
-- `tags`
-
 ## Physical Shape
-
-Current v0 direction:
 
 - `ENGINE = MergeTree`
 - `PARTITION BY toDate(timestamp)`
 - `ORDER BY (timestamp, traceId)`
 
-Additional notes:
+Notes:
 
-- `level`, `entityType`, `parentEntityType`, `rootEntityType`, `environment`, `source`, and `serviceName` are good `LowCardinality` candidates
+- `level`, entity type fields, `environment`, `source`, and `serviceName` are strong `LowCardinality` candidates
 - `tags` should use `Array(LowCardinality(String))`
-- `PARTITION BY toDate(timestamp)` should support day-granularity log TTL management
+- `PARTITION BY toDate(timestamp)` supports day-granularity log TTL management
 
 ## Query Contract
 
-Current v0 direction:
-
 - `listLogs` should support the current public log filter surface
-- `tags` remain filterable
-- `data`, `metadata`, and `scope` should not participate in discovery or grouping in v0
-
-Current public log filter schema includes:
-
-- `timestamp`
-- `traceId`
-- `spanId`
-- `entityType`
-- `entityName`
-- `userId`
-- `organizationId`
-- `experimentId`
-- `serviceName`
-- `environment`
-- `parentEntityType`
-- `parentEntityName`
-- `rootEntityType`
-- `rootEntityName`
-- `resourceId`
-- `runId`
-- `sessionId`
-- `threadId`
-- `requestId`
-- `source`
-- `tags`
-- `level`
-
-Important note:
-
-- log `metadata` is present on the record but is not part of the public log filter schema
+- `tags` remain filterable under the shared tag semantics
+- `data`, `metadata`, and `scope` are retained on the row but do not participate in discovery or grouping in v0
+- log `metadata` is present on the record but is not part of the current public log filter schema
 
 ## Intentional v0 Limitations
 
-- no searchable metadata map for logs in v0
-- no filtering/grouping on `data`
-- no filtering/grouping on `scope`
+- no searchable metadata map for logs
+- no filtering or grouping on `data`
+- no filtering or grouping on `scope`
