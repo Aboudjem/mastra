@@ -64,6 +64,8 @@ Notes:
 - `level`, entity type fields, `environment`, `source`, and `serviceName` are strong `LowCardinality` candidates
 - `tags` should use `Array(LowCardinality(String))`
 - `PARTITION BY toDate(timestamp)` supports day-granularity log TTL management
+- `ORDER BY (timestamp, traceId)` is intentional in v0 because logs are designed primarily for recency-first reads
+- trace-correlated log reads are supported, but they are not the primary physical-design driver for `log_events`
 
 ## Query Contract
 

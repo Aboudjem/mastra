@@ -21,7 +21,9 @@ Refreshable helper tables are preferred here because they recompute the current 
 
 - assume the target Cloud ClickHouse deployment supports refreshable materialized views for the v0 discovery design
 - assume `ARRAY JOIN`, `mapKeys()`, direct `Map` key lookup, and the `LowCardinality(...)`, `Map(...)`, and `Array(...)` types used elsewhere in the design are available
-- if refreshable materialized views are not available in the target environment, this discovery design does not apply as written and needs a different refresh mechanism
+- if refreshable materialized views are not available in the target environment, this discovery design does not apply as written
+- `v-next` should treat refreshable materialized-view support as a required runtime capability for discovery in v0
+- adapter initialization should fail fast rather than silently falling back to base-table scans or empty discovery behavior when that capability is missing
 
 ## Helper Tables
 
@@ -48,43 +50,39 @@ Physical direction in v0:
 - `discovery_pairs` should not use partitioning in v0
 - `discovery_pairs` should use `ORDER BY (kind, key1, key2, value)`
 - discovery helper tables are fully derived structures; refresh is the consistency mechanism rather than table-local TTL
+- `key1` should always be stored as a non-null `String` in `discovery_values`
+- `key2` should always be stored as a non-null `String` in `discovery_pairs`
+- use the empty-string sentinel when a discovery family has no parent-key or secondary-key dimension in v0
+- do not rely on nullable sort-key columns or `allow_nullable_key` for discovery helper tables
 
 ### `discovery_values` dimension semantics
 
 - `kind = entityType`
-  - `scope = cross-signal`
-  - `key1 = NULL`
+  - `key1 = ''`
   - `value = entityType`
 - `kind = serviceName`
-  - `scope = cross-signal`
-  - `key1 = NULL`
+  - `key1 = ''`
   - `value = serviceName`
 - `kind = environment`
-  - `scope = cross-signal`
-  - `key1 = NULL`
+  - `key1 = ''`
   - `value = environment`
 - `kind = tag`
-  - `scope = cross-signal`
   - `key1 = entityType`
   - `value = tag`
 - `kind = metricName`
-  - `scope = metric`
-  - `key1 = NULL`
+  - `key1 = ''`
   - `value = metric name`
 - `kind = metricLabelKey`
-  - `scope = metric`
   - `key1 = metric name`
   - `value = label key`
 
 ### `discovery_pairs` dimension semantics
 
 - `kind = entityTypeName`
-  - `scope = cross-signal`
   - `key1 = entityType`
-  - `key2 = NULL`
+  - `key2 = ''`
   - `value = entityName`
 - `kind = metricLabelValue`
-  - `scope = metric`
   - `key1 = metric name`
   - `key2 = label key`
   - `value = label value`
@@ -133,26 +131,30 @@ The refresh SQL should normalize each source into a common projection and then a
 
 `discovery_values` refresh shape:
 
-- each source subquery should project `kind`, `scope`, `key1`, and `value`
+- each source subquery should project `kind`, `key1`, and `value`
 - use `UNION ALL` across the subqueries for each discovery family
 - use an outer `SELECT DISTINCT`
-- drop `NULL` and empty-string values before the outer `DISTINCT`
+- `key1` should be normalized to `''` when the discovery family has no parent-key dimension
+- drop `NULL` and empty-string values for the discovered `value` before the outer `DISTINCT`
 - use `ARRAY JOIN tags AS tag` for tag discovery
 - use `ARRAY JOIN mapKeys(labels) AS labelKey` for metric label-key discovery
 
 `discovery_pairs` refresh shape:
 
-- each source subquery should project `kind`, `scope`, `key1`, `key2`, and `value`
+- each source subquery should project `kind`, `key1`, `key2`, and `value`
 - use `UNION ALL` across the subqueries for each pair-discovery family
 - use an outer `SELECT DISTINCT`
-- drop `NULL` and empty-string values before the outer `DISTINCT`
+- `key2` should be normalized to `''` when the discovery family has no secondary-key dimension
+- drop `NULL` and empty-string values for the discovered `value` before the outer `DISTINCT`
 - for metric label-value discovery, use `ARRAY JOIN mapKeys(labels) AS labelKey` and `labels[labelKey] AS labelValue`
 
 Normalization rules for refresh queries:
 
 - treat source-table tags and labels as already normalized by the base-table write path
 - do not add extra fuzzy normalization in discovery refresh
-- drop null and empty strings
+- normalize unused discovery key slots to `''`
+- when a discovery family requires a real parent key or secondary key, drop rows where that key is null or empty instead of inventing a synthetic value
+- drop null and empty strings from discovered values
 - endpoint queries should apply ordering and limits; the helper tables do not store a canonical sort order
 
 ## Endpoint Mapping
@@ -211,9 +213,12 @@ The current discovery API does not expose time-range filters. Refresh queries ma
 Bootstrap and staleness behavior:
 
 - after creating the helper tables and refreshable materialized views, initialization should trigger an immediate manual refresh for both discovery tables
+- successful bootstrap requires that first manual refresh to succeed for both discovery tables
 - without that initial refresh, the discovery tables may remain empty until the first scheduled refresh completes
+- `init()` should fail closed if discovery bootstrap refresh fails; do not mark discovery as healthy while serving known-empty helper tables
 - after bootstrap, discovery remains eventually consistent and readers should continue seeing the last successful refresh snapshot
 - if a scheduled refresh is slow or fails, discovery data may stay stale beyond the nominal refresh interval
+- after at least one successful bootstrap refresh, later scheduled-refresh failures should leave the last successful snapshot in place rather than clearing discovery
 
 Delete and TTL behavior:
 

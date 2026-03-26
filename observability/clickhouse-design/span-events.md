@@ -56,7 +56,6 @@ Span-specific scalars:
 - `name`
 - `spanType`
 - `isEvent`
-- `status`
 - `startedAt`
 - `endedAt`
 
@@ -85,10 +84,12 @@ Important notes:
 
 Status:
 
-- store a typed `status` column with allowed values `success` and `error`
-- determine write-time `status` from the presence of span error information
-- do not infer `status` from `output`
-- `span_events.status` is not the same thing as the broader public trace `status` surface
+- do not store a physical `status` column in `span_events` in v0
+- trace status should be derived from the stored span row at query/read time
+- use `error != null => error`
+- otherwise use `success`
+- do not infer trace status from `output`
+- `running` remains part of the broader public trace status surface, but `span_events` stores only completed rows in v0 so that filter returns no rows
 
 Event spans:
 
@@ -101,6 +102,7 @@ Read-path shaping:
 
 - `startedAt` must be stored directly because there are no started-span rows to reconstruct it from
 - returned span records should reconstruct `metadata` from `metadataRaw`
+- returned trace-facing status should be derived from `error` presence rather than loaded from a stored `status` column
 - returned span records should populate `createdAt = startedAt` and `updatedAt = null` in v0
 
 ## Metadata And Scope Contract
@@ -117,7 +119,7 @@ Read-path shaping:
 - only top-level metadata entries whose values are non-empty strings are indexed
 - `null`, empty strings, non-string scalar values, arrays, and objects are not indexed
 - nested objects and arrays remain available only in `metadataRaw`
-- before writing `metadataSearch`, remove keys already promoted into typed columns such as `userId`, `organizationId`, `resourceId`, `runId`, `sessionId`, `threadId`, `requestId`, `environment`, `source`, and `serviceName`
+- before writing `metadataSearch`, remove the canonical promoted-key set defined in the shared normalization rules because those values already live in typed trace columns
 
 Metadata filter semantics:
 
@@ -125,11 +127,13 @@ Metadata filter semantics:
 - only top-level string metadata values are searchable in v0
 - metadata filters that target non-string values, nested values, or non-indexed keys should simply return no rows rather than throw
 - v0 does not imply nested-object matching, array membership, wildcard, regex, or partial-match semantics for trace metadata
+- this is an intentional v0 ClickHouse contract and should not be described as preserving richer JSON-style metadata filtering from other backends
 
 `scope`:
 
 - stays as a serialized JSON blob for inspection only
 - `scope` does not participate in filtering, search, discovery, or grouping in v0
+- lack of trace `scope` filtering is an intentional v0 ClickHouse contract
 
 If future ClickHouse version support makes native JSON columns practical, revisit this contract instead of expanding `metadataSearch` indefinitely.
 
@@ -145,8 +149,9 @@ Notes:
 - it also keeps day-granularity TTL and partition expiry practical for tracing retention
 - `ORDER BY (traceId, endedAt, spanId, dedupeKey)` prioritizes full-trace reads and point lookups within a trace while making `dedupeKey` part of the replacement identity
 - `dedupeKey` should be persisted with every row so tracing writes can be retried idempotently in v0
+- tracing retry-idempotency in v0 assumes duplicate rows for the same `dedupeKey` are byte-identical ended-span rows
 - read-path correctness should not rely solely on background merges; tracing queries should still return one row per `dedupeKey`
-- `status`, `spanType`, `entityType`, `environment`, `source`, and `serviceName` are strong `LowCardinality` candidates
+- `spanType`, `entityType`, `environment`, `source`, and `serviceName` are strong `LowCardinality` candidates
 
 ## Query Contract
 
@@ -156,20 +161,31 @@ Routing:
 - `getTrace` reads from `span_events`
 - `getRootSpan` reads from `trace_roots`
 - `listTraces` reads from `trace_roots`
-- `getSpan` should filter by tracing identity (`dedupeKey` or `(traceId, spanId)`) and use ordinary `LIMIT 1`
-- `getTrace` should narrow the trace row set first, then use `LIMIT 1 BY dedupeKey`, then apply final presentation ordering
+- `getSpan` should filter by `(traceId, spanId)` and use ordinary `LIMIT 1`
+- `getTrace` should use a two-stage query shape:
+  - inner query: filter to the trace row set, apply a deterministic pre-dedupe `ORDER BY`, then use `LIMIT 1 BY dedupeKey`
+  - outer query: apply the final span presentation ordering over the deduplicated trace rows
+- because duplicate tracing rows are required to be byte-identical in v0, the pre-dedupe ordering only needs to be deterministic; it is not selecting between semantically different row versions
+- `getTrace` should not rely on a single-level query to both deduplicate and apply final span ordering
 
 Trace filter behavior:
 
 - all trace filters other than `hasChildError` are evaluated against the root span
+- trace status filtering is derived from the root row rather than a stored `status` column:
+  - `status = error` means `error IS NOT NULL`
+  - `status = success` means `error IS NULL`
+  - `status = running` returns no rows in v0 because only completed rows are stored
 - trace `metadata` filters target `metadataSearch`
+- trace metadata filtering is intentionally limited to top-level string equality in v0
+- trace `scope` filtering is intentionally unsupported in v0
 
 `hasChildError`:
 
-- compute it at query time as "any non-root span in the same trace has `status = error`"
+- compute it at query time as "any non-root span in the same trace has `error IS NOT NULL`"
 - exclude the root span itself from the `hasChildError` check
 - do not store a dedicated helper column on `span_events` in v0
 - this is a slower query-derived path in v0 and may require checking child-span existence from `trace_roots`-driven trace listing queries
+- the child-span existence check does not need `FINAL` or a separate dedupe layer in v0, because duplicate tracing rows for the same `dedupeKey` are required to be byte-identical and therefore do not change the boolean result
 - if it later needs optimization, prefer a refreshable trace-level helper structure rather than row-local denormalization
 
 ## Intentional v0 Limitations

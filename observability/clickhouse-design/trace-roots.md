@@ -36,6 +36,7 @@ Notes:
 - the incremental materialized view should project only `parentSpanId IS NULL` rows from `span_events`
 - the incremental materialized view should carry through the root row's `dedupeKey`
 - `ORDER BY (startedAt, traceId, dedupeKey)` keeps the list-oriented sort while making `dedupeKey` part of the replacement identity
+- retry-idempotency in v0 assumes duplicate root rows for the same `dedupeKey` are byte-identical
 - because this is an incremental materialized-view target, deletes and truncation must be issued directly against `trace_roots`
 
 ## Query Contract
@@ -43,12 +44,22 @@ Notes:
 - `listTraces` reads from `trace_roots`
 - `getRootSpan` reads from `trace_roots`
 - all root-span-oriented trace filters other than `hasChildError` are evaluated against `trace_roots`
-- `status = running` returns no rows
+- trace status filtering is derived from the root row rather than a stored `status` column:
+  - `status = error` means `error IS NOT NULL`
+  - `status = success` means `error IS NULL`
+  - `status = running` returns no rows in v0 because only completed rows are stored
 - trace `metadata` filters target `metadataSearch`
+- trace metadata filtering is intentionally limited to top-level string equality in v0
+- trace `scope` filtering is intentionally unsupported in v0
 - when `hasChildError` is present, the query should use `span_events` for the child-span existence check while still using `trace_roots` as the main listing source
-- `hasChildError` means that some non-root span in the same trace has `status = error`
+- `hasChildError` means that some non-root span in the same trace has `error IS NOT NULL`
 - `getRootSpan` should filter by root tracing identity and use ordinary `LIMIT 1`
-- `listTraces` should narrow the candidate root row set first, then use `LIMIT 1 BY dedupeKey`, then apply final presentation ordering
+- `listTraces` should use a two-stage query shape:
+  - inner query: narrow the candidate root row set first, apply a deterministic pre-dedupe `ORDER BY`, then use `LIMIT 1 BY dedupeKey`
+  - outer query: apply final presentation ordering and pagination over the deduplicated root row set
+- `listTraces` count queries should count from the same filtered-and-deduplicated inner query shape rather than counting raw `trace_roots` rows
+- because duplicate tracing rows are required to be byte-identical in v0, the pre-dedupe ordering only needs to be deterministic; it is not selecting between semantically different row versions
+- the `hasChildError` existence check does not need `FINAL` or separate deduplication in v0, because duplicate child-span rows do not change the boolean result
 - `batchDeleteTraces` should issue a matching lightweight delete against `trace_roots`
 - `dangerouslyClearAll` should explicitly truncate `trace_roots`
 

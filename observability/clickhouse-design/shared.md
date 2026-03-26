@@ -46,8 +46,9 @@ Expected `observabilityStrategy` direction:
 
 Adapter note:
 
-- the `v-next` ClickHouse observability domain should expose `observabilityStrategy`
-- `tracingStrategy` may remain as a deprecated compatibility alias, but `observabilityStrategy` is the property `DefaultExporter` uses
+- the `v-next` ClickHouse observability domain must expose `observabilityStrategy` as the authoritative strategy property
+- `DefaultExporter` reads `observabilityStrategy`, so `v-next` should not treat `tracingStrategy` as the primary integration surface
+- `v-next` should not expose a `tracingStrategy` compatibility alias
 
 ## Domain Layout
 
@@ -94,7 +95,11 @@ ClickHouse `v-next` tracing behaves as follows in v0:
 - it stores and returns only completed spans and traces
 - it treats `(traceId, spanId)` as the logical tracing row identity in `span_events` and `trace_roots`
 - `status = running` may still exist in the shared public API, but ClickHouse `v-next` v0 should return no rows for that filter
+- trace status is derived from stored root/span rows rather than persisted as a dedicated tracing column in v0
 - trace listing and root-span filtering operate on root rows
+- ClickHouse `v-next` intentionally narrows trace metadata filtering to top-level string equality over `metadataSearch`
+- ClickHouse `v-next` does not support trace `scope` filtering in v0
+- this narrowed trace-filter behavior is an intentional v0 contract, not an accidental implementation gap
 
 Implementation tests should lock in the lack of live-running trace visibility explicitly.
 
@@ -112,11 +117,18 @@ Implementation tests should lock in the lack of live-running trace visibility ex
 - in v0, `dedupeKey` is the natural tracing identity string `traceId || ':' || spanId`
 - `trace_roots.dedupeKey` should match the root row's `span_events.dedupeKey`
 - tracing DDL/query code should treat `dedupeKey` as the tracing row identity used to prevent duplicate rows from exporter retries
+- v0 retry-idempotency assumes duplicate tracing writes for the same `dedupeKey` are byte-identical ended-span rows
+- that means the same `dedupeKey` must not be re-emitted with different timestamps, error state, metadata, or other payload fields in v0
+- if a producer retries the same `dedupeKey` with different row contents, that violates the v0 tracing write contract
 - tracing tables should use `ReplacingMergeTree`, with `dedupeKey` participating in the sorting key for replacement identity
+- because duplicate tracing rows are required to be identical in v0, `ReplacingMergeTree` does not need a version column for correctness
 - tracing read paths should still apply query-time dedupe semantics where needed so duplicate rows are not exposed before background merges complete
 - normal tracing reads should not rely on `FINAL` for correctness in v0
-- point lookups may read by tracing identity and use ordinary `LIMIT 1`
-- multi-row tracing reads should narrow the row set first, then use `LIMIT 1 BY dedupeKey`, then apply final presentation ordering
+- point lookups should read by tracing identity and use ordinary `LIMIT 1`
+- multi-row tracing reads should use a two-stage query shape:
+  - inner query: narrow the candidate row set first, apply a deterministic pre-dedupe `ORDER BY`, then use `LIMIT 1 BY dedupeKey`
+  - outer query: apply final presentation ordering, pagination, or counting over the already-deduplicated row set
+- do not describe `LIMIT 1 BY dedupeKey` as if it preserves a second ordering automatically; final ordering requires the outer query layer
 - non-tracing signal tables do not get dedupe keys in v0
 - duplicate metrics, logs, scores, and feedback caused by retried writes are an accepted v0 limitation until a later event-id design exists
 
@@ -183,11 +195,27 @@ Normalization rules:
 
 - `labels`: trim string values; drop `null`, non-string, and empty values
 - `tags`: trim string values; drop `null`, non-string, and empty values; de-duplicate repeated tags within a row
-- `metadataSearch`: keep only top-level metadata entries whose values are non-empty strings; drop `null`, non-string values, arrays, and objects; remove keys already promoted into typed columns
+- `metadataSearch`: keep only top-level metadata entries whose values are non-empty strings; drop `null`, non-string values, arrays, and objects
+- before writing `metadataSearch`, remove this canonical promoted-key set because those values already live in typed trace columns:
+  - `experimentId`
+  - `entityType`
+  - `entityId`
+  - `entityName`
+  - `userId`
+  - `organizationId`
+  - `resourceId`
+  - `runId`
+  - `sessionId`
+  - `threadId`
+  - `requestId`
+  - `environment`
+  - `source`
+  - `serviceName`
 
 Important note:
 
 - `span_events.metadataSearch` and `trace_roots.metadataSearch` are intentionally limited to basic top-level string equality filtering
+- this is an intentional v0 ClickHouse contract, not just an implementation shortcut
 - they are not meant to preserve arbitrary JSON-path or nested metadata-query behavior from other backends
 
 ## LowCardinality Guidance
@@ -202,19 +230,20 @@ Strong v0 candidates:
 - `serviceName`
 - metric `name`
 - `provider`
-- span `status`
 
 Intentional v0 decisions:
 
 - do not treat `entityId` or `entityName` fields as `LowCardinality`
 - do not treat `model` as `LowCardinality`
-- do not treat `feedback_events.value` as `LowCardinality`
+- do not treat `feedback_events.valueString` or `feedback_events.valueNumber` as `LowCardinality`
 
 ## Discovery
 
 - discovery queries should read from dedicated helper tables rather than scanning the signal tables directly
 - maintain `discovery_values` and `discovery_pairs` with refreshable materialized views in v0
 - discovery is intentionally eventually consistent in v0
+- discovery support in v0 assumes the target ClickHouse environment supports refreshable materialized views
+- if that capability is unavailable, `v-next` should fail discovery setup rather than silently degrade to base-table scans or empty discovery responses
 - scores and feedback should not be forced into cross-signal entity discovery just for symmetry
 
 ## Deletes And Retention
@@ -255,7 +284,7 @@ Future requirements such as "keep traces with scores for 30 days but drop ordina
   - `discovery_values`
   - `discovery_pairs`
 - keep `hasChildError` query-derived in v0
-- define `hasChildError` as "any non-root span in the trace has `status = error`"
+- define `hasChildError` as "any non-root span in the trace has `error IS NOT NULL`"
 - if `hasChildError` later becomes a concrete performance problem, prefer a refreshable trace-level helper structure over row-local denormalization on `span_events` or `trace_roots`
 
 ## Testing Expectations
@@ -269,7 +298,7 @@ At minimum, `v-next` tests should cover:
 - `trace_roots` materialized-view population
 - discovery helper refresh behavior
 - per-table `ORDER BY` expectations where testable
-- span `status`
+- derived trace status semantics
 - trace `hasChildError`
 - `metadataRaw` vs `metadataSearch`
 - exact filter-surface behavior per signal

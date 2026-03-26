@@ -48,7 +48,6 @@ Important note:
 - `name`: `String`
 - `spanType`: `LowCardinality(String)`
 - `isEvent`: `Bool`
-- `status`: `LowCardinality(String)`
 - `startedAt`: `DateTime64(3, 'UTC')`
 - `endedAt`: `DateTime64(3, 'UTC')`
 - `metadataSearch`: `Map(LowCardinality(String), String) DEFAULT {}`
@@ -92,7 +91,6 @@ Read-path notes:
 - `name`: `String`
 - `spanType`: `LowCardinality(String)`
 - `isEvent`: `Bool`
-- `status`: `LowCardinality(String)`
 - `startedAt`: `DateTime64(3, 'UTC')`
 - `endedAt`: `DateTime64(3, 'UTC')`
 - `metadataSearch`: `Map(LowCardinality(String), String) DEFAULT {}`
@@ -217,41 +215,46 @@ Read-path notes:
 - `serviceName`: `LowCardinality(Nullable(String))`
 - `source`: `LowCardinality(String)`
 - `feedbackType`: `LowCardinality(String)`
-- `value`: `String`
+- `valueString`: `Nullable(String)`
+- `valueNumber`: `Nullable(Float64)`
 - `comment`: `Nullable(String)`
 - `metadata`: `Nullable(String)`
 
 Important note:
 
-- `feedback.value` is `number | string` in the public API but should not be queryable in v0
-- current v0 direction is to store the JSON-encoded representation in `String` so read-time decoding preserves `number` vs `string`
-- if stronger type fidelity becomes important later, `feedback.value` should be redesigned explicitly rather than inferred during implementation
+- logical `feedback.value` is represented physically by two typed nullable columns in v0:
+  - `valueString`
+  - `valueNumber`
+- exactly one of `valueString` or `valueNumber` should be non-null for a valid row
+- string feedback values should use `valueString`
+- numeric feedback values should use `valueNumber`
 
 ## `discovery_values`
 
 - `kind`: `LowCardinality(String)`
-- `scope`: `LowCardinality(String)`
-- `key1`: `Nullable(String)`
+- `key1`: `String`
 - `value`: `String`
 
 Important note:
 
 - `kind` identifies the logical lookup family such as `entityType`, `serviceName`, `environment`, `tag`, `metricName`, or `metricLabelKey`
-- `scope` identifies the source family such as `cross-signal` or `metric`
-- `key1` should be used only when the value depends on one parent key in v0, such as metric name for metric label keys
+- `key1` should always be non-null in v0
+- `key1` should store the parent lookup key when the value depends on one parent key, such as metric name for metric label keys
+- `key1 = ''` should be used when the lookup family has no parent-key dimension in v0
 - physical v0 direction: `ENGINE = MergeTree`, no partitioning, `ORDER BY (kind, key1, value)`
 
 ## `discovery_pairs`
 
 - `kind`: `LowCardinality(String)`
-- `scope`: `LowCardinality(String)`
 - `key1`: `String`
-- `key2`: `Nullable(String)`
+- `key2`: `String`
 - `value`: `String`
 
 Important note:
 
 - `kind` identifies the logical pair family such as `entityTypeName` or `metricLabelValue`
 - `key1` should store the primary lookup key such as entity type or metric name
+- `key2` should always be non-null in v0
 - `key2` should store the secondary lookup key when needed, such as metric label key
+- `key2 = ''` should be used when the pair family has no secondary key dimension in v0
 - physical v0 direction: `ENGINE = MergeTree`, no partitioning, `ORDER BY (kind, key1, key2, value)`

@@ -49,11 +49,13 @@ Notes:
 
 - `entityType`, `environment`, `serviceName`, `source`, `scorerId`, and `scorerVersion` are strong `LowCardinality` candidates
 - `ORDER BY (traceId, timestamp)` is intentional in v0 because scores are expected to be consumed primarily in trace-scoped reads rather than global recency-first listing
+- recency-first global score listing is still supported, but it is not the primary physical-design driver for `score_events`
 - `PARTITION BY toDate(timestamp)` supports day-granularity score TTL management
 
 ## Query Contract
 
 - `listScores` should support the current public score filter surface directly from score rows
+- the physical layout intentionally favors trace-scoped score access over global recency-first listing in v0
 - `reason` is retained for display but does not participate in filtering, search, discovery, or grouping
 - `metadata` remains information-only in v0
 - `score_events` must carry the context needed to satisfy the current public score filter schema

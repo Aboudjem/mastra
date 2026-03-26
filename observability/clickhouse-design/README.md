@@ -29,8 +29,9 @@ The shared doc captures the cross-cutting v0 decisions, including:
 - append-only ClickHouse storage across all five signals, with `ReplacingMergeTree` for tracing and `MergeTree` for the other four signals
 - insert-only tracing with `span_events` plus `trace_roots`
 - tracing retry-idempotency via a tracing-only `dedupeKey`
+- intentionally narrowed v0 ClickHouse trace-filter semantics: top-level string-only metadata equality via `metadataSearch`, and no trace `scope` filtering
 - non-tracing signals intentionally remaining non-idempotent under retries in v0
-- refreshable discovery helper tables
+- refreshable discovery helper tables, with fail-fast setup if the required ClickHouse feature support is unavailable
 - day-granularity retention
 - raw ClickHouse DDL as the source of schema definition
 
@@ -58,7 +59,7 @@ Use the shared doc for the common contract and the per-table docs for physical s
    - `trace_roots` population from root-span inserts
    - discovery helper refresh behavior and staleness expectations
    - per-table ordering
-   - span status
+   - derived trace status semantics
    - trace `hasChildError`
    - `metadataRaw` vs `metadataSearch`
    - exact filter-surface behavior per signal
@@ -69,8 +70,3 @@ Important note:
 
 - this document set is intentionally about steady-state `v-next` design, not transition mechanics
 - migration, cutover, and coexistence planning should not block v0 implementation work
-
-## AI Agent Reviews
-
-- [Claude Code Review](./claude-review.md)
-- [Codex Review](./codex-review.md)
