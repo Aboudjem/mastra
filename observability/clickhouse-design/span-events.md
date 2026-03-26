@@ -110,27 +110,23 @@ Read-path shaping:
 
 `metadataSearch`:
 
-- stores a flattened dot-path string-string index of trace metadata
-- example: metadata `{ user: { id: "u_123" } }` becomes `metadataSearch["user.id"] = "u_123"`
-- only non-empty string leaf values are indexed
+- stores a top-level string-string index of trace metadata
+- only top-level metadata entries whose values are non-empty strings are indexed
 - `null`, empty strings, non-string scalar values, arrays, and objects are not indexed
-- keys that cannot be represented as stable flattened paths are omitted from `metadataSearch` and remain available only in `metadataRaw`
+- nested objects and arrays remain available only in `metadataRaw`
 - before writing `metadataSearch`, remove keys already promoted into typed columns such as `userId`, `organizationId`, `resourceId`, `runId`, `sessionId`, `threadId`, `requestId`, `environment`, `source`, and `serviceName`
 
 Metadata filter semantics:
 
-- trace metadata filters support equality-only matching against flattened `metadataSearch` keys
-- metadata filter values must be strings in v0
-- metadata filters targeting non-string values should fail explicitly rather than silently return no rows
-- metadata filters targeting keys that are not indexed into `metadataSearch` should fail explicitly rather than silently fall back to scanning `metadataRaw`
+- trace metadata filters support equality-only matching against top-level `metadataSearch` keys
+- only top-level string metadata values are searchable in v0
+- metadata filters that target non-string values, nested values, or non-indexed keys should simply return no rows rather than throw
 - v0 does not imply nested-object matching, array membership, wildcard, regex, or partial-match semantics for trace metadata
 
 `scope`:
 
-- stays as a serialized JSON blob because the current trace filter schema exposes it
-- filters should use nested-path equality via JSON extraction from the serialized payload
-- filter values may be strings, numbers, or booleans, but not arrays or objects
-- v0 does not imply wildcard, regex, or partial-match semantics for `scope`
+- stays as a serialized JSON blob for inspection only
+- `scope` does not participate in filtering, search, discovery, or grouping in v0
 
 If future ClickHouse version support makes native JSON columns practical, revisit this contract instead of expanding `metadataSearch` indefinitely.
 
@@ -159,9 +155,7 @@ Routing:
 Trace filter behavior:
 
 - all trace filters other than `hasChildError` are evaluated against the root span
-- because trace filters are root-span-based, `parentEntityType`, `parentEntityId`, `parentEntityName`, `rootEntityType`, `rootEntityId`, and `rootEntityName` behave as aliases of the root span's `entityType`, `entityId`, and `entityName`
 - trace `metadata` filters target `metadataSearch`
-- trace `scope` filters target the serialized `scope` payload
 
 `hasChildError`:
 
@@ -174,4 +168,6 @@ Trace filter behavior:
 - no live or running trace visibility
 - no reconstruction from start/end span events
 - no search over non-string metadata values
+- no nested metadata filtering
+- no scope filtering
 - no metadata grouping or discovery from `metadataRaw`

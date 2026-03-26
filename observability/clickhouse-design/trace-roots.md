@@ -25,12 +25,12 @@ Define the logical shape, physical shape, and query contract for `trace_roots`, 
 
 - `ENGINE = MergeTree`
 - `PARTITION BY toDate(endedAt)`
-- `ORDER BY (endedAt, traceId)`
+- `ORDER BY (startedAt, traceId)`
 
 Notes:
 
-- optimize `trace_roots` for recent time-range filtering and ordering
-- keep partitioning aligned with `span_events` so tracing TTL can be managed consistently across both tables
+- optimize `trace_roots` for the default `listTraces` read pattern, which orders by `startedAt`
+- keep partitioning aligned with `span_events` on `endedAt` so tracing TTL can be managed consistently across both tables
 - the incremental materialized view should project only `parentSpanId IS NULL` rows from `span_events`
 
 ## Query Contract
@@ -40,7 +40,6 @@ Notes:
 - all root-span-oriented trace filters other than `hasChildError` are evaluated against `trace_roots`
 - `status = running` returns no rows
 - trace `metadata` filters target `metadataSearch`
-- trace `scope` filters target the serialized `scope` payload
 - when `hasChildError` is present, the query may use `span_events` for the child-span existence check while still using `trace_roots` as the main listing source
 
 If `hasChildError` later needs optimization, prefer a refreshable trace-level helper structure rather than storing it directly on `trace_roots`.
@@ -49,4 +48,5 @@ If `hasChildError` later needs optimization, prefer a refreshable trace-level he
 
 - no live or running trace visibility
 - no stored `hasChildError`
+- no scope filtering
 - no dedicated summary-only schema for `trace_roots`; v0 favors direct root-row usability over maximal storage minimization

@@ -22,23 +22,17 @@ Important note:
 - [Discovery Design](./discovery.md)
 - [Physical Types](./physical-types.md)
 
-## Core v0 Decisions
+## Design Summary
 
-- use append-only storage for all five signals
-- prefer ClickHouse-native design choices over inheriting constraints from DuckDB or other backends
-- use `insert-only` exporter routing for tracing
-- store and return only completed spans and traces in v0
-- tracing should use two physical tables in v0:
-  - `span_events` for full-trace reads
-  - `trace_roots` for root-span listing/filtering
-- populate `trace_roots` from `span_events` with an incremental materialized view
-- discovery should use two refreshable helper tables in v0:
-  - `discovery_values` for unique-value lookups
-  - `discovery_pairs` for key-value lookups
-- configure TTL/retention per signal in day increments
-- keep per-table physical design decisions per table rather than forcing one shared `ORDER BY`
-- use raw ClickHouse DDL for the `v-next` tables
-- treat ClickHouse semantics as the primary design reference; DuckDB is a parity reference, not the source of truth
+The shared doc captures the cross-cutting v0 decisions, including:
+
+- append-only `MergeTree` storage across all five signals
+- insert-only tracing with `span_events` plus `trace_roots`
+- refreshable discovery helper tables
+- day-granularity retention
+- raw ClickHouse DDL as the source of schema definition
+
+Use the shared doc for the common contract and the per-table docs for physical shape and query behavior.
 
 ## Scope
 

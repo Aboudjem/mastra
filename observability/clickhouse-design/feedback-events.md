@@ -53,6 +53,7 @@ Notes:
 
 - `entityType`, `environment`, `serviceName`, `source`, and `feedbackType` are strong `LowCardinality` candidates
 - `value` should not be treated as `LowCardinality`
+- `ORDER BY (traceId, timestamp)` is intentional in v0 because feedback is expected to be consumed primarily in trace-scoped reads rather than global recency-first listing
 - `PARTITION BY toDate(timestamp)` supports day-granularity feedback TTL management
 
 ## Query Contract

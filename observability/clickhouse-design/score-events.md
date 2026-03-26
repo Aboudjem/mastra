@@ -48,6 +48,7 @@ Information-only payloads:
 Notes:
 
 - `entityType`, `environment`, `serviceName`, `source`, `scorerId`, and `scorerVersion` are strong `LowCardinality` candidates
+- `ORDER BY (traceId, timestamp)` is intentional in v0 because scores are expected to be consumed primarily in trace-scoped reads rather than global recency-first listing
 - `PARTITION BY toDate(timestamp)` supports day-granularity score TTL management
 
 ## Query Contract

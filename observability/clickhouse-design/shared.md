@@ -70,19 +70,19 @@ Important notes:
 - in the current exporter implementation, `observabilityStrategy` affects tracing-event routing only
 - metrics, logs, scores, and feedback still flow as create-only batched writes
 - `insert-only` should keep started-span records out of the `batchCreateSpans` path in normal operation
+- `batchUpdateSpans` should remain unimplemented in ClickHouse `v-next`; normal tracing writes should rely on the insert-only create path only
 - the current shared record builders do not yet populate every typed field required by the `score_events` and `feedback_events` designs
 - that upstream score/feedback record-builder enrichment should land separately from the ClickHouse `v-next` storage PR
 
-## Backend-Specific Trace Contract
+## v0 Trace Behavior
 
-ClickHouse `v-next` intentionally diverges from the broader tracing contract in these ways:
+ClickHouse `v-next` tracing behaves as follows in v0:
 
 - it stores and returns only completed spans and traces
 - `status = running` may still exist in the shared public API, but ClickHouse `v-next` v0 should return no rows for that filter
-- trace filters are evaluated against the root span in this backend
-- because trace filters are root-span-based here, `parentEntityType`, `parentEntityId`, `parentEntityName`, `rootEntityType`, `rootEntityId`, and `rootEntityName` behave as aliases of the root span's `entityType`, `entityId`, and `entityName`
+- trace listing and root-span filtering operate on root rows
 
-Implementation tests should lock in this behavior explicitly rather than assuming cross-backend parity with live-running trace visibility.
+Implementation tests should lock in the lack of live-running trace visibility explicitly.
 
 ## Shared Field Rules
 
@@ -155,12 +155,12 @@ Normalization rules:
 
 - `labels`: trim string values; drop `null`, non-string, and empty values
 - `tags`: trim string values; drop `null`, non-string, and empty values; de-duplicate repeated tags within a row
-- `metadataSearch`: flatten nested metadata objects into stable dot-path keys; keep only non-empty string leaf values; drop `null`, non-string values, arrays, and objects; remove keys already promoted into typed columns
+- `metadataSearch`: keep only top-level metadata entries whose values are non-empty strings; drop `null`, non-string values, arrays, and objects; remove keys already promoted into typed columns
 
 Important note:
 
-- `span_events.metadataSearch` and `trace_roots.metadataSearch` are intentionally narrower than arbitrary JSON-path filtering
-- they are not meant to preserve every metadata-query behavior from backends that directly inspect arbitrary JSON values
+- `span_events.metadataSearch` and `trace_roots.metadataSearch` are intentionally limited to basic top-level string equality filtering
+- they are not meant to preserve arbitrary JSON-path or nested metadata-query behavior from other backends
 
 ## LowCardinality Guidance
 
