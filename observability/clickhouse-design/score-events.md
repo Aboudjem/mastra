@@ -38,7 +38,7 @@ Define the logical shape, physical shape, and query contract for ClickHouse `v-n
 
 - `scorerId`
 - `scorerVersion`
-- `scoreSource`
+- `source`
 - `score`
 
 ### Information-only payloads
@@ -56,7 +56,8 @@ Current v0 direction:
 
 Additional notes:
 
-- `entityType`, `entityId`, `entityName`, `environment`, `serviceName`, `scoreSource`, `scorerId`, and `scorerVersion` are good `LowCardinality` candidates
+- `entityType`, `environment`, `serviceName`, `source`, `scorerId`, and `scorerVersion` are good `LowCardinality` candidates
+- `PARTITION BY toDate(timestamp)` should support day-granularity score TTL management
 
 ## Query Contract
 
@@ -83,8 +84,8 @@ Current public score filter schema includes:
 Important note:
 
 - `score_events` should carry the context needed to satisfy the current public score filter schema
-- the score write path will need to propagate these fields from emitted score context or enclosing trace/span context during implementation
-- storage should use `scoreSource` as the physical column name for score-origin semantics
+- the score write path will need to propagate these fields from emitted score context or enclosing trace/span context
+- that upstream score record-builder work should land separately from the ClickHouse `v-next` storage PR
 - score `metadata` is present on the record but is not part of the public score filter schema
 
 ## Intentional v0 Limitations

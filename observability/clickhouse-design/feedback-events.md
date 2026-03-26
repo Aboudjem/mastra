@@ -36,7 +36,7 @@ Define the logical shape, physical shape, and query contract for ClickHouse `v-n
 
 ### Feedback-specific scalars
 
-- `feedbackSource`
+- `source`
 - `feedbackType`
 - `value`
 
@@ -55,14 +55,15 @@ Current v0 direction:
 
 Additional notes:
 
-- `entityType`, `entityId`, `entityName`, `environment`, `serviceName`, `feedbackSource`, and `feedbackType` are good `LowCardinality` candidates
+- `entityType`, `environment`, `serviceName`, `source`, and `feedbackType` are good `LowCardinality` candidates
 - `value` should not be treated as `LowCardinality`
+- `PARTITION BY toDate(timestamp)` should support day-granularity feedback TTL management
 
 ## Query Contract
 
 Current v0 direction:
 
-- `feedbackSource` should be searchable/filterable in v0
+- `source` should be searchable/filterable in v0
 - `feedbackType` should be searchable/filterable in v0
 - `value` should be retained for display but stored as a JSON-encoded value to preserve `string` vs `number`
 - `value` should not participate in filtering, search, discovery, or grouping in v0
@@ -87,9 +88,8 @@ Current public feedback filter schema includes:
 Important note:
 
 - `feedback_events` should carry the context needed to satisfy the current public feedback filter schema
-- the feedback write path will need to propagate these fields from emitted feedback context or enclosing trace/span context during implementation
-- storage should use `feedbackSource` as the physical column name
-- public feedback filter field `source` should map to storage column `feedbackSource`
+- the feedback write path will need to propagate these fields from emitted feedback context or enclosing trace/span context
+- that upstream feedback record-builder work should land separately from the ClickHouse `v-next` storage PR
 - `feedback.value` should be JSON-encoded on write and JSON-decoded on read so the storage layer preserves the public `string | number` contract cleanly
 - feedback `metadata` is present on the record but is not part of the public feedback filter schema
 
@@ -97,7 +97,7 @@ Important note:
 
 - `sourceId` is part of the logical shape, but it may be sparse on the default exporter path
 - `sourceId` means the identifier of the source record the feedback is linked to, not the feedback source/category itself
-- the feedback source/category is stored separately in `feedbackSource`
+- the feedback source/category is stored separately in `source`
 
 ## Intentional v0 Limitations
 

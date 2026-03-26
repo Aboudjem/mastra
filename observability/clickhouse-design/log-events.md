@@ -70,8 +70,9 @@ Current v0 direction:
 
 Additional notes:
 
-- `level`, `entityType`, `entityId`, `entityName`, `environment`, `source`, and `serviceName` are good `LowCardinality` candidates
+- `level`, `entityType`, `parentEntityType`, `rootEntityType`, `environment`, `source`, and `serviceName` are good `LowCardinality` candidates
 - `tags` should use `Array(LowCardinality(String))`
+- `PARTITION BY toDate(timestamp)` should support day-granularity log TTL management
 
 ## Query Contract
 

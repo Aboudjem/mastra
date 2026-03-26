@@ -37,8 +37,8 @@ Important note:
 - `parentSpanId`: `Nullable(String)`
 - `experimentId`: `Nullable(String)`
 - `entityType`: `LowCardinality(Nullable(String))`
-- `entityId`: `LowCardinality(Nullable(String))`
-- `entityName`: `LowCardinality(Nullable(String))`
+- `entityId`: `Nullable(String)`
+- `entityName`: `Nullable(String)`
 - `userId`: `Nullable(String)`
 - `organizationId`: `Nullable(String)`
 - `resourceId`: `Nullable(String)`
@@ -50,7 +50,7 @@ Important note:
 - `source`: `LowCardinality(Nullable(String))`
 - `serviceName`: `LowCardinality(Nullable(String))`
 - `requestContext`: `Nullable(String)`
-- `spanName`: `String`
+- `name`: `String`
 - `spanType`: `LowCardinality(String)`
 - `isEvent`: `Bool`
 - `status`: `LowCardinality(String)`
@@ -72,22 +72,63 @@ Read-path notes:
 - returned span `createdAt` should be populated as `startedAt`
 - returned span `updatedAt` should be `null` in v0
 
+## `trace_roots`
+
+- `traceId`: `String`
+- `spanId`: `String`
+- `parentSpanId`: `Nullable(String)`
+- `experimentId`: `Nullable(String)`
+- `entityType`: `LowCardinality(Nullable(String))`
+- `entityId`: `Nullable(String)`
+- `entityName`: `Nullable(String)`
+- `userId`: `Nullable(String)`
+- `organizationId`: `Nullable(String)`
+- `resourceId`: `Nullable(String)`
+- `runId`: `Nullable(String)`
+- `sessionId`: `Nullable(String)`
+- `threadId`: `Nullable(String)`
+- `requestId`: `Nullable(String)`
+- `environment`: `LowCardinality(Nullable(String))`
+- `source`: `LowCardinality(Nullable(String))`
+- `serviceName`: `LowCardinality(Nullable(String))`
+- `requestContext`: `Nullable(String)`
+- `name`: `String`
+- `spanType`: `LowCardinality(String)`
+- `isEvent`: `Bool`
+- `status`: `LowCardinality(String)`
+- `startedAt`: `DateTime64(3, 'UTC')`
+- `endedAt`: `DateTime64(3, 'UTC')`
+- `metadataSearch`: `Map(LowCardinality(String), String) DEFAULT {}`
+- `tags`: `Array(LowCardinality(String)) DEFAULT []`
+- `attributes`: `Nullable(String)`
+- `scope`: `Nullable(String)`
+- `links`: `Nullable(String)`
+- `input`: `Nullable(String)`
+- `output`: `Nullable(String)`
+- `error`: `Nullable(String)`
+- `metadataRaw`: `Nullable(String)`
+
+Read-path notes:
+
+- `trace_roots` should remain close enough to the root-span shape that `listTraces` can return root records directly in v0
+- returned trace-root `metadata` should be reconstructed from `metadataRaw`
+
 ## `metric_events`
 
 - `timestamp`: `DateTime64(3, 'UTC')`
-- `metricName`: `LowCardinality(String)`
+- `name`: `LowCardinality(String)`
 - `traceId`: `Nullable(String)`
 - `spanId`: `Nullable(String)`
 - `experimentId`: `Nullable(String)`
 - `entityType`: `LowCardinality(Nullable(String))`
-- `entityId`: `LowCardinality(Nullable(String))`
-- `entityName`: `LowCardinality(Nullable(String))`
+- `entityId`: `Nullable(String)`
+- `entityName`: `Nullable(String)`
 - `parentEntityType`: `LowCardinality(Nullable(String))`
-- `parentEntityId`: `LowCardinality(Nullable(String))`
-- `parentEntityName`: `LowCardinality(Nullable(String))`
+- `parentEntityId`: `Nullable(String)`
+- `parentEntityName`: `Nullable(String)`
 - `rootEntityType`: `LowCardinality(Nullable(String))`
-- `rootEntityId`: `LowCardinality(Nullable(String))`
-- `rootEntityName`: `LowCardinality(Nullable(String))`
+- `rootEntityId`: `Nullable(String)`
+- `rootEntityName`: `Nullable(String)`
 - `userId`: `Nullable(String)`
 - `organizationId`: `Nullable(String)`
 - `resourceId`: `Nullable(String)`
@@ -99,7 +140,7 @@ Read-path notes:
 - `source`: `LowCardinality(Nullable(String))`
 - `serviceName`: `LowCardinality(Nullable(String))`
 - `provider`: `LowCardinality(Nullable(String))`
-- `model`: `LowCardinality(Nullable(String))`
+- `model`: `Nullable(String)`
 - `value`: `Float64`
 - `estimatedCost`: `Nullable(Float64)`
 - `costUnit`: `LowCardinality(Nullable(String))`
@@ -119,14 +160,14 @@ Read-path notes:
 - `spanId`: `Nullable(String)`
 - `experimentId`: `Nullable(String)`
 - `entityType`: `LowCardinality(Nullable(String))`
-- `entityId`: `LowCardinality(Nullable(String))`
-- `entityName`: `LowCardinality(Nullable(String))`
+- `entityId`: `Nullable(String)`
+- `entityName`: `Nullable(String)`
 - `parentEntityType`: `LowCardinality(Nullable(String))`
-- `parentEntityId`: `LowCardinality(Nullable(String))`
-- `parentEntityName`: `LowCardinality(Nullable(String))`
+- `parentEntityId`: `Nullable(String)`
+- `parentEntityName`: `Nullable(String)`
 - `rootEntityType`: `LowCardinality(Nullable(String))`
-- `rootEntityId`: `LowCardinality(Nullable(String))`
-- `rootEntityName`: `LowCardinality(Nullable(String))`
+- `rootEntityId`: `Nullable(String)`
+- `rootEntityName`: `Nullable(String)`
 - `userId`: `Nullable(String)`
 - `organizationId`: `Nullable(String)`
 - `resourceId`: `Nullable(String)`
@@ -149,15 +190,15 @@ Read-path notes:
 - `experimentId`: `Nullable(String)`
 - `scoreTraceId`: `Nullable(String)`
 - `entityType`: `LowCardinality(Nullable(String))`
-- `entityId`: `LowCardinality(Nullable(String))`
-- `entityName`: `LowCardinality(Nullable(String))`
+- `entityId`: `Nullable(String)`
+- `entityName`: `Nullable(String)`
 - `userId`: `Nullable(String)`
 - `organizationId`: `Nullable(String)`
 - `environment`: `LowCardinality(Nullable(String))`
 - `serviceName`: `LowCardinality(Nullable(String))`
 - `scorerId`: `LowCardinality(String)`
 - `scorerVersion`: `LowCardinality(Nullable(String))`
-- `scoreSource`: `LowCardinality(Nullable(String))`
+- `source`: `LowCardinality(Nullable(String))`
 - `score`: `Float64`
 - `reason`: `Nullable(String)`
 - `metadata`: `Nullable(String)`
@@ -171,12 +212,12 @@ Read-path notes:
 - `userId`: `Nullable(String)`
 - `sourceId`: `Nullable(String)`
 - `entityType`: `LowCardinality(Nullable(String))`
-- `entityId`: `LowCardinality(Nullable(String))`
-- `entityName`: `LowCardinality(Nullable(String))`
+- `entityId`: `Nullable(String)`
+- `entityName`: `Nullable(String)`
 - `organizationId`: `Nullable(String)`
 - `environment`: `LowCardinality(Nullable(String))`
 - `serviceName`: `LowCardinality(Nullable(String))`
-- `feedbackSource`: `LowCardinality(String)`
+- `source`: `LowCardinality(String)`
 - `feedbackType`: `LowCardinality(String)`
 - `value`: `String`
 - `comment`: `Nullable(String)`
@@ -187,3 +228,30 @@ Important note:
 - `feedback.value` is `number | string` in the public API but should not be queryable in v0
 - current v0 direction is to store the JSON-encoded representation in `String` so read-time decoding preserves `number` vs `string`
 - if stronger type fidelity becomes important later, `feedback.value` should be redesigned explicitly rather than inferred during implementation
+
+## `discovery_values`
+
+- `kind`: `LowCardinality(String)`
+- `scope`: `LowCardinality(String)`
+- `key1`: `Nullable(String)`
+- `value`: `String`
+
+Important note:
+
+- `kind` identifies the logical lookup family such as `entityType`, `serviceName`, `environment`, `tag`, `metricName`, or `metricLabelKey`
+- `scope` identifies the source family such as `cross-signal` or `metric`
+- `key1` should be used only when the value depends on one parent key in v0, such as metric name for metric label keys
+
+## `discovery_pairs`
+
+- `kind`: `LowCardinality(String)`
+- `scope`: `LowCardinality(String)`
+- `key1`: `String`
+- `key2`: `Nullable(String)`
+- `value`: `String`
+
+Important note:
+
+- `kind` identifies the logical pair family such as `entityTypeName` or `metricLabelValue`
+- `key1` should store the primary lookup key such as entity type or metric name
+- `key2` should store the secondary lookup key when needed, such as metric label key

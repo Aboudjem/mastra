@@ -13,7 +13,7 @@ Define the logical shape, physical shape, and query contract for ClickHouse `v-n
 ### Event metadata
 
 - `timestamp`
-- `metricName`
+- `name`
 
 ### Correlation and experiment ids
 
@@ -73,13 +73,14 @@ Current v0 direction:
 
 - `ENGINE = MergeTree`
 - `PARTITION BY toDate(timestamp)`
-- `ORDER BY (metricName, timestamp)`
+- `ORDER BY (name, timestamp)`
 
 Additional notes:
 
-- `metricName`, entity hierarchy fields, `environment`, `source`, `serviceName`, `provider`, and `model` are strong `LowCardinality` candidates
+- `name`, entity type fields, `environment`, `source`, `serviceName`, and `provider` are strong `LowCardinality` candidates
 - `labels` should use `Map(LowCardinality(String), String)`
 - `tags` should use `Array(LowCardinality(String))`
+- `PARTITION BY toDate(timestamp)` should support day-granularity metric TTL management
 
 ## Semi-Structured Policy
 
@@ -139,8 +140,9 @@ Current public metrics filter schema includes:
 Current v0 direction:
 
 - the ClickHouse metrics implementation should support that filter surface directly from typed columns plus `labels`/`tags`
-- public metric filter field `name` should map to storage column `metricName`
 - `metadata`, `costMetadata`, and `scope` are stored on the record but are not part of the current metrics filter schema
+- metric `labels` filters should use contains-all semantics over exact key/value pairs after shared normalization
+- metric `labels` filters should not imply wildcard, regex, prefix, substring, or fuzzy-match semantics in v0
 
 ### `groupBy` semantics
 
@@ -149,13 +151,17 @@ Current v0 direction:
 - if a `groupBy` key matches a typed metric column, group by that typed column
 - otherwise, treat the key as a metric-label key and group by the value stored under `labels`
 - `metadata`, `costMetadata`, and `scope` should not participate in `groupBy`
+- typed metric columns should win when a `groupBy` key collides with both a typed column name and a label key
+- rows that do not contain the requested label key should be excluded from that label-based grouped result in v0
 
 ## Discovery Direction
 
 Current v0 direction:
 
-- discovery operates directly on `metric_events`
-- do not add helper views in v0 unless implementation evidence justifies them
+- metric discovery should read from the shared discovery helper tables rather than directly from `metric_events`
+- `getMetricNames` should read from `discovery_values`
+- `getMetricLabelKeys` should read from `discovery_values`
+- `getMetricLabelValues` should read from `discovery_pairs`
 
 ## Intentional v0 Limitations
 

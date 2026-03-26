@@ -10,10 +10,47 @@ Define the discovery endpoints, table coverage, and query behavior for ClickHous
 
 ## v0 Direction
 
-- discovery should operate directly on the base tables
-- do not add helper views or materialized views in v0
+- discovery should read from two dedicated helper tables:
+  - `discovery_values`
+  - `discovery_pairs`
+- both discovery helper tables should be maintained by refreshable materialized views
 - do not add discovery over JSON payloads in v0
 - do not force scores or feedback into cross-signal discovery just for symmetry
+
+## Helper Tables
+
+Current v0 direction:
+
+- `discovery_values` should store de-duplicated unique values for:
+  - `entityType`
+  - `serviceName`
+  - `environment`
+  - `tag`
+  - `metricName`
+  - metric `labelKey`
+- `discovery_pairs` should store de-duplicated key-value style lookups for:
+  - `entityType -> entityName`
+  - `metricName + labelKey -> labelValue`
+
+Important note:
+
+- `discovery_values` and `discovery_pairs` should be normal tables refreshed from source queries
+- they should not be fed incrementally from insert-time materialized views in v0
+- refreshable materialized views are the preferred v0 mechanism because they recompute the current set after deletes and TTL expiry
+
+## Refresh Cadence
+
+Current v0 direction:
+
+- start with `discovery_values` refreshed every 1 minute
+- start with `discovery_pairs` refreshed every 5 minutes
+- treat those intervals as product defaults, not hard architectural requirements
+
+Important note:
+
+- `discovery_values` is expected to back the most common lightweight UI pickers, so it should refresh more frequently
+- `discovery_pairs` is expected to be larger and less latency-sensitive, so it can refresh less often in v0
+- discovery should be explicitly eventually consistent in v0
 
 ## Public Discovery API
 
@@ -41,47 +78,45 @@ Current API argument surface:
 
 ## Cross-Signal Discovery
 
-Cross-signal discovery should operate only over the tables that actually carry those fields in v0:
+Cross-signal discovery should operate over the discovery helper tables in v0:
 
-- `span_events`
-- `metric_events`
-- `log_events`
+- `discovery_values`
+- `discovery_pairs`
 
 ### Entity discovery
 
 Current v0 direction:
 
-- `getEntityTypes` should union distinct `entityType` values from `span_events`, `metric_events`, and `log_events`
-- `getEntityNames` should union distinct `entityName` values from the same three tables
-- when `entityType` is provided to `getEntityNames`, it should filter each contributing table before the union
+- `getEntityTypes` should read from `discovery_values` rows where kind = `entityType`
+- `getEntityNames` should read from `discovery_pairs` rows where kind = `entityTypeName`
+- when `entityType` is provided to `getEntityNames`, it should filter `discovery_pairs` by the stored entity type key before ordering/limit
 
 ### Service/environment discovery
 
 Current v0 direction:
 
-- `getServiceNames` should union distinct `serviceName` values from `span_events`, `metric_events`, and `log_events`
-- `getEnvironments` should union distinct `environment` values from `span_events`, `metric_events`, and `log_events`
+- `getServiceNames` should read from `discovery_values` rows where kind = `serviceName`
+- `getEnvironments` should read from `discovery_values` rows where kind = `environment`
 
 ### Tag discovery
 
 Current v0 direction:
 
-- `getTags` should union distinct tags from `span_events`, `metric_events`, and `log_events`
-- for `span_events`, tags should be read from root spans only
-- when `entityType` is provided to `getTags`, it should filter the contributing rows before unnesting tags
+- `getTags` should read from `discovery_values` rows where kind = `tag`
+- when `entityType` is provided to `getTags`, it should filter on the stored entity type dimension before ordering/limit
 
 ## Metric Discovery
 
-Metric-specific discovery should operate only on `metric_events`.
+Metric-specific discovery should operate on the discovery helper tables rather than directly on `metric_events`.
 
 Current v0 direction:
 
-- `getMetricNames` should return distinct metric names from `metric_events.metricName`
-- `prefix` should apply as a name prefix filter before distinct/ordering
+- `getMetricNames` should read from `discovery_values` rows where kind = `metricName`
+- `prefix` should apply as a value prefix filter before ordering
 - `limit` should apply after ordering
-- `getMetricLabelKeys` should return distinct keys from `metric_events.labels` for the requested metric name
-- `getMetricLabelValues` should return distinct values for the requested label key from the requested metric name
-- `prefix` on `getMetricLabelValues` should apply before distinct/ordering
+- `getMetricLabelKeys` should read from `discovery_values` rows where kind = `metricLabelKey` and metric name matches
+- `getMetricLabelValues` should read from `discovery_pairs` rows where kind = `metricLabelValue`, metric name matches, and label key matches
+- `prefix` on `getMetricLabelValues` should apply before ordering
 - `limit` on `getMetricLabelValues` should apply after ordering
 
 ## Explicit Non-Goals
@@ -97,4 +132,4 @@ Current v0 direction:
 
 ## Operational Note
 
-The current discovery API does not expose time-range filters for these endpoints. Inference: v0 discovery queries may require broad scans of the base tables, especially for tags and label discovery. That is acceptable for v0, but should not be hidden by the design.
+The current discovery API does not expose time-range filters for these endpoints. Inference: discovery helper refresh queries may still scan broad source ranges, but query-time endpoint cost should no longer depend on scanning the observability base tables directly. That is the intended v0 tradeoff.

@@ -13,10 +13,9 @@ Define the logical shape, physical shape, and query contract for ClickHouse `v-n
 Current v0 direction:
 
 - persist only completed spans
-- ClickHouse may receive started-span writes through `event-sourced` routing
-- conceptually, only tracing create events corresponding to `SPAN_ENDED` should be persisted
-- in the storage-facing `batchCreateSpans` path, event spans should first be normalized so `endedAt = startedAt` when `isEvent = true` and `endedAt` is null
-- after that normalization, the v0 persistence gate is whether the row represents a completed/ended span
+- use `insert-only` tracing routing so the normal `batchCreateSpans` path receives only create records corresponding to `SPAN_ENDED`
+- event spans should first be normalized so `endedAt = startedAt` when `isEvent = true` and `endedAt` is null
+- after that normalization, persist the resulting row directly
 - each stored row represents the final ended span state
 - do not store `eventType`
 
@@ -28,8 +27,9 @@ Current v0 direction:
 
 - a trace is the set of spans sharing the same `traceId`
 - the root span is the span whose `parentSpanId` is `null`
-- `listTraces` should operate on root spans only
-- trace-level filters should be evaluated against the root span unless the filter is explicitly trace-aggregate behavior such as `hasChildError`
+- `trace_roots` should own the root-span listing/filtering path
+- `span_events` should own full-trace reads and point lookups within a trace
+- trace-level filters should be evaluated against `trace_roots` unless the filter is explicitly trace-aggregate behavior such as `hasChildError`
 - because trace listing operates on root spans, `entity*`, `parentEntity*`, and `rootEntity*` trace filters collapse to the same root-span entity values
 - no separate physical parent/root entity columns are required on `span_events` in v0
 - span tags should be treated as a root-span feature in v0
@@ -72,7 +72,7 @@ Important note:
 
 ### Span-specific scalars
 
-- `spanName`
+- `name`
 - `spanType`
 - `isEvent`
 - `status`
@@ -139,6 +139,7 @@ Current v0 direction:
 
 - keep the original metadata payload in `metadataRaw`
 - return span `metadata` by reconstructing from `metadataRaw`
+- flatten searchable metadata into dot-path string keys in `metadataSearch`
 - keep only searchable string-string pairs in `metadataSearch`
 - filter/search only against `metadataSearch`
 - do not support searching non-string metadata values in v0
@@ -147,6 +148,20 @@ Current v0 direction:
 Important note:
 
 - `metadataRaw` should be JSON-encoded at write time even when the original metadata contains scalar leaf values or mixed nested shapes
+- `metadataRaw` exists for fidelity and response reconstruction, not as a fallback scan target for trace metadata filters
+
+Important note:
+
+- nested metadata objects should be flattened into dot-path keys before storage in `metadataSearch`
+- example: metadata `{ user: { id: "u_123" } }` becomes `metadataSearch["user.id"] = "u_123"`
+- only string leaf values should be indexed into `metadataSearch`
+- `null`, empty strings, non-string scalar values, arrays, and objects should not be indexed into `metadataSearch`
+- metadata keys that cannot be represented as a stable flattened path should be omitted from `metadataSearch` and remain available only in `metadataRaw`
+
+Important note:
+
+- this intentionally makes ClickHouse trace metadata filtering narrower than arbitrary JSON-path filtering
+- if future ClickHouse version support allows native JSON columns with acceptable query behavior, revisit this contract rather than expanding `metadataSearch` indefinitely
 
 Before writing `metadataSearch`, remove keys already promoted into typed columns, including:
 
@@ -167,14 +182,15 @@ Current v0 direction:
 
 - `ENGINE = MergeTree`
 - `PARTITION BY toDate(endedAt)`
-- `ORDER BY (endedAt, traceId)`
+- `ORDER BY (traceId, endedAt, spanId)`
 
 Additional notes:
 
 - `startedAt` must be stored directly because there are no started-span rows to reconstruct it from
-- `status`, `spanType`, `entityType`, `entityId`, `entityName`, `environment`, `source`, and `serviceName` are good `LowCardinality` candidates
+- `status`, `spanType`, `entityType`, `environment`, `source`, and `serviceName` are good `LowCardinality` candidates
 - `PARTITION BY toDate(endedAt)` keeps the physical layout aligned with the stored ended-span model
-- `ORDER BY (endedAt, traceId)` prioritizes time-window and recency-oriented trace queries in v0
+- `PARTITION BY toDate(endedAt)` also keeps day-granularity TTL and partition expiry practical for tracing retention
+- `ORDER BY (traceId, endedAt, spanId)` prioritizes full-trace reads and point lookups within a trace in v0
 - event spans should have `startedAt = endedAt` after ClickHouse ingest normalization
 
 ## Query Contract
@@ -183,15 +199,32 @@ Current v0 direction:
 
 - `getSpan`, `getRootSpan`, `getTrace`, and `listTraces` should operate only on completed spans/traces
 - ClickHouse `v-next` v0 does not support live/running trace visibility
-- `getRootSpan` and `listTraces` should read only spans where `parentSpanId IS NULL`
-- trace `status` in `listTraces` should be derived from the root span
-- filters asking for `status = running` should return no rows
+- `getSpan` and `getTrace` should read from `span_events`
+- `getRootSpan` should read from `trace_roots`
+- `listTraces` should read from `trace_roots`
+- `span_events` should not be the main scan source for `listTraces`
 - `hasChildError` should be computed at query time as "any span in the same trace has `status = error`"
-- `hasChildError` should not require a stored helper column in v0
+- `hasChildError` should not require a stored helper column on `span_events` in v0
+- if `hasChildError` later needs optimization, the preferred follow-up is a refreshable trace-level helper structure rather than a row-local column on `span_events`
 - metadata filtering should target `metadataSearch`, not `metadataRaw`
 - scope filtering should target the serialized `scope` payload via JSON extraction
 - returned span records should reconstruct `metadata` from `metadataRaw`
 - returned span records should populate `createdAt = startedAt` and `updatedAt = null` in v0
+
+Metadata filter semantics in v0:
+
+- trace metadata filters should support equality-only matching against flattened `metadataSearch` keys
+- metadata filter values must be strings in v0
+- metadata filters targeting non-string values should fail explicitly rather than silently return no rows
+- metadata filters targeting keys that are not indexed into `metadataSearch` should fail explicitly rather than silently fall back to scanning `metadataRaw`
+- metadata filters should not imply nested-object matching, array membership, wildcard, regex, or partial-match semantics in v0
+
+Scope filter semantics in v0:
+
+- trace `scope` filters should support nested-path equality via JSON extraction from the serialized `scope` payload
+- `scope` filter behavior should be limited to exact equality on scalar JSON values in v0
+- `scope` filter values may be strings, numbers, or booleans, but not arrays or objects
+- `scope` filters should not imply wildcard, regex, or partial-match semantics in v0
 
 Current public trace filter schema includes:
 
@@ -228,7 +261,6 @@ Important note:
 
 - all trace filters other than `hasChildError` should be evaluated against the root span
 - because trace filters are evaluated on the root span, `parentEntityType`, `parentEntityId`, `parentEntityName`, `rootEntityType`, `rootEntityId`, and `rootEntityName` should be treated as aliases of the root span's `entityType`, `entityId`, and `entityName`
-- returned API field `name` should map to storage column `spanName`
 - trace `metadata` filters should target `metadataSearch`
 - trace `scope` filters should target the serialized `scope` payload
 - ClickHouse should map normalized zero-duration event spans back to `endedAt = null` on reads to preserve the current public event-span shape
@@ -237,7 +269,7 @@ Important note:
 
 - no live/running trace visibility
 - no reconstruction from start/end span events
-- started-span writes are intentionally discarded in v0
+- `insert-only` routing intentionally keeps started-span writes out of the storage create path in v0
 - no searching non-string metadata values
 - no metadata grouping/discovery from `metadataRaw`
 - no dedicated optimization for `hasChildError` beyond trace-local query structure in v0
