@@ -1,10 +1,11 @@
 import { z } from 'zod/v4';
 import {
-  commonFilterFields,
+  dateRangeSchema,
   experimentIdField,
   paginationArgsSchema,
   paginationInfoSchema,
   sortDirectionSchema,
+  organizationIdField,
   spanIdField,
   traceIdField,
 } from '../shared';
@@ -42,6 +43,7 @@ export const scoreRecordSchema = z
     score: scoreValueField,
     reason: scoreReasonField.nullish(),
     experimentId: experimentIdField.nullish(),
+    organizationId: organizationIdField.nullish(),
 
     /** Trace ID of the scoring run (links to trace that generated this score) */
     scoreTraceId: z.string().nullish().describe('Trace ID of the scoring run for debugging score generation'),
@@ -131,7 +133,11 @@ export type BatchCreateScoresArgs = z.infer<typeof batchCreateScoresArgsSchema>;
 /** Schema for filtering scores in list queries */
 export const scoresFilterSchema = z
   .object({
-    ...commonFilterFields,
+    timestamp: dateRangeSchema.optional().describe('Filter by timestamp range'),
+    traceId: z.string().optional().describe('Filter by trace ID'),
+    spanId: z.string().optional().describe('Filter by span ID'),
+    organizationId: organizationIdField.optional(),
+    experimentId: experimentIdField.optional(),
 
     // Score-specific filters
     scorerId: z

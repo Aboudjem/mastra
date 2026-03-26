@@ -180,7 +180,7 @@ export const contextFields = {
 } as const;
 
 /**
- * Common filter fields shared across observability signal filters (metrics, logs, scores, feedback).
+ * Common filter fields shared across observability signal filters (metrics, logs).
  * All fields are optional — each signal extends this with signal-specific filters.
  */
 export const commonFilterFields = {

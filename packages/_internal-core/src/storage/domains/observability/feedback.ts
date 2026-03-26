@@ -1,6 +1,6 @@
 import { z } from 'zod/v4';
 import {
-  commonFilterFields,
+  dateRangeSchema,
   experimentIdField,
   paginationArgsSchema,
   paginationInfoSchema,
@@ -8,6 +8,7 @@ import {
   spanIdField,
   traceIdField,
   userIdField,
+  organizationIdField,
 } from '../shared';
 
 // ============================================================================
@@ -42,6 +43,7 @@ export const feedbackRecordSchema = z
     feedbackType: feedbackTypeField,
     value: feedbackValueField,
     comment: feedbackCommentField.nullish(),
+    organizationId: organizationIdField.nullish(),
     experimentId: experimentIdField.nullish(),
 
     // Identity
@@ -140,7 +142,12 @@ export type BatchCreateFeedbackArgs = z.infer<typeof batchCreateFeedbackArgsSche
 /** Schema for filtering feedback in list queries */
 export const feedbackFilterSchema = z
   .object({
-    ...commonFilterFields,
+    timestamp: dateRangeSchema.optional().describe('Filter by timestamp range'),
+    traceId: z.string().optional().describe('Filter by trace ID'),
+    spanId: z.string().optional().describe('Filter by span ID'),
+    userId: userIdField.optional(),
+    organizationId: organizationIdField.optional(),
+    experimentId: experimentIdField.optional(),
 
     // Feedback-specific filters
     feedbackType: z
