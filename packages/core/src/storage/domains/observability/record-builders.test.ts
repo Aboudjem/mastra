@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { LogEvent, MetricEvent } from '../../../observability';
+import type { FeedbackEvent, LogEvent, MetricEvent, ScoreEvent } from '../../../observability';
 import { EntityType } from '../../../observability/types/tracing';
-import { buildLogRecord, buildMetricRecord } from './record-builders';
+import { buildFeedbackRecord, buildLogRecord, buildMetricRecord, buildScoreRecord } from './record-builders';
 
 describe('record-builders', () => {
   describe('buildMetricRecord', () => {
@@ -206,6 +206,159 @@ describe('record-builders', () => {
         costUnit: null,
         costMetadata: null,
         metadata: null,
+      });
+    });
+  });
+
+  describe('buildScoreRecord', () => {
+    it('promotes organizationId from metadata', () => {
+      const timestamp = new Date('2026-01-01T00:00:00.000Z');
+      const event: ScoreEvent = {
+        type: 'score',
+        score: {
+          timestamp,
+          traceId: 'trace-1',
+          spanId: 'span-1',
+          scorerId: 'judge-1',
+          scorerVersion: 'v1',
+          source: 'eval',
+          score: 0.91,
+          reason: 'good answer',
+          experimentId: 'exp-1',
+          scoreTraceId: 'score-trace-1',
+          metadata: {
+            organizationId: 'org-1',
+            kept: true,
+          },
+        },
+      };
+
+      expect(buildScoreRecord(event)).toEqual({
+        timestamp,
+        traceId: 'trace-1',
+        spanId: 'span-1',
+        scorerId: 'judge-1',
+        scorerVersion: 'v1',
+        source: 'eval',
+        score: 0.91,
+        reason: 'good answer',
+        experimentId: 'exp-1',
+        organizationId: 'org-1',
+        scoreTraceId: 'score-trace-1',
+        metadata: {
+          organizationId: 'org-1',
+          kept: true,
+        },
+      });
+    });
+
+    it('leaves organizationId null when metadata does not contain a string', () => {
+      const timestamp = new Date('2026-01-01T00:00:00.000Z');
+      const event: ScoreEvent = {
+        type: 'score',
+        score: {
+          timestamp,
+          traceId: 'trace-2',
+          scorerId: 'judge-2',
+          score: 0.5,
+          metadata: {
+            organizationId: 123,
+          },
+        },
+      };
+
+      expect(buildScoreRecord(event)).toEqual({
+        timestamp,
+        traceId: 'trace-2',
+        spanId: null,
+        scorerId: 'judge-2',
+        scorerVersion: null,
+        source: null,
+        score: 0.5,
+        reason: null,
+        experimentId: null,
+        organizationId: null,
+        scoreTraceId: null,
+        metadata: {
+          organizationId: 123,
+        },
+      });
+    });
+  });
+
+  describe('buildFeedbackRecord', () => {
+    it('promotes organizationId and userId from metadata', () => {
+      const timestamp = new Date('2026-01-01T00:00:00.000Z');
+      const event: FeedbackEvent = {
+        type: 'feedback',
+        feedback: {
+          timestamp,
+          traceId: 'trace-1',
+          spanId: 'span-1',
+          source: 'playground',
+          feedbackType: 'thumbs-up',
+          value: 'positive',
+          comment: 'helpful',
+          experimentId: 'exp-1',
+          metadata: {
+            organizationId: 'org-1',
+            userId: 'user-1',
+            kept: true,
+          },
+        },
+      };
+
+      expect(buildFeedbackRecord(event)).toEqual({
+        timestamp,
+        traceId: 'trace-1',
+        spanId: 'span-1',
+        source: 'playground',
+        feedbackType: 'thumbs-up',
+        value: 'positive',
+        comment: 'helpful',
+        organizationId: 'org-1',
+        experimentId: 'exp-1',
+        userId: 'user-1',
+        metadata: {
+          organizationId: 'org-1',
+          userId: 'user-1',
+          kept: true,
+        },
+      });
+    });
+
+    it('leaves organizationId and userId null when metadata values are not strings', () => {
+      const timestamp = new Date('2026-01-01T00:00:00.000Z');
+      const event: FeedbackEvent = {
+        type: 'feedback',
+        feedback: {
+          timestamp,
+          traceId: 'trace-2',
+          source: 'api',
+          feedbackType: 'rating',
+          value: 4,
+          metadata: {
+            organizationId: 123,
+            userId: false,
+          },
+        },
+      };
+
+      expect(buildFeedbackRecord(event)).toEqual({
+        timestamp,
+        traceId: 'trace-2',
+        spanId: null,
+        source: 'api',
+        feedbackType: 'rating',
+        value: 4,
+        comment: null,
+        organizationId: null,
+        experimentId: null,
+        userId: null,
+        metadata: {
+          organizationId: 123,
+          userId: false,
+        },
       });
     });
   });

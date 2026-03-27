@@ -287,6 +287,8 @@ export function buildLogRecord(event: LogEvent): CreateLogRecord {
 /** Convert a ScoreEvent to a CreateScoreRecord */
 export function buildScoreRecord(event: ScoreEvent): CreateScoreRecord {
   const s = event.score;
+  const organizationId = typeof s.metadata?.organizationId === 'string' ? s.metadata.organizationId : null;
+
   return {
     timestamp: s.timestamp,
     traceId: s.traceId,
@@ -297,6 +299,7 @@ export function buildScoreRecord(event: ScoreEvent): CreateScoreRecord {
     score: s.score,
     reason: s.reason ?? null,
     experimentId: s.experimentId ?? null,
+    organizationId,
     scoreTraceId: s.scoreTraceId ?? null,
     metadata: s.metadata ?? null,
   };
@@ -306,6 +309,8 @@ export function buildScoreRecord(event: ScoreEvent): CreateScoreRecord {
 export function buildFeedbackRecord(event: FeedbackEvent): CreateFeedbackRecord {
   const fb = event.feedback;
   const userId = typeof fb.metadata?.userId === 'string' ? fb.metadata.userId : null;
+  const organizationId = typeof fb.metadata?.organizationId === 'string' ? fb.metadata.organizationId : null;
+
   return {
     timestamp: fb.timestamp,
     traceId: fb.traceId,
@@ -314,6 +319,7 @@ export function buildFeedbackRecord(event: FeedbackEvent): CreateFeedbackRecord 
     feedbackType: fb.feedbackType,
     value: fb.value,
     comment: fb.comment ?? null,
+    organizationId,
     experimentId: fb.experimentId ?? null,
     userId,
     metadata: fb.metadata ?? null,
