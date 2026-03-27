@@ -44,9 +44,11 @@ import type {
   GetMetricLabelKeysResponse,
   GetMetricLabelValuesArgs,
   GetMetricLabelValuesResponse,
+  CreateScoreArgs,
   BatchCreateScoresArgs,
   ListScoresArgs,
   ListScoresResponse,
+  CreateFeedbackArgs,
   BatchCreateFeedbackArgs,
   ListFeedbackArgs,
   ListFeedbackResponse,
@@ -320,6 +322,22 @@ export class ObservabilityStorageClickhouseVNext extends ObservabilityStorage {
     }
   }
 
+  override async createScore(args: CreateScoreArgs): Promise<void> {
+    try {
+      await scoresOps.createScore(this.#client, args);
+    } catch (error) {
+      if (error instanceof MastraError) throw error;
+      throw new MastraError(
+        {
+          id: createStorageErrorId('CLICKHOUSE', 'CREATE_SCORE', 'FAILED'),
+          domain: ErrorDomain.STORAGE,
+          category: ErrorCategory.THIRD_PARTY,
+        },
+        error,
+      );
+    }
+  }
+
   override async batchCreateScores(args: BatchCreateScoresArgs): Promise<void> {
     try {
       await scoresOps.batchCreateScores(this.#client, args);
@@ -345,6 +363,22 @@ export class ObservabilityStorageClickhouseVNext extends ObservabilityStorage {
       throw new MastraError(
         {
           id: createStorageErrorId('CLICKHOUSE', 'LIST_SCORES', 'FAILED'),
+          domain: ErrorDomain.STORAGE,
+          category: ErrorCategory.THIRD_PARTY,
+        },
+        error,
+      );
+    }
+  }
+
+  override async createFeedback(args: CreateFeedbackArgs): Promise<void> {
+    try {
+      await feedbackOps.createFeedback(this.#client, args);
+    } catch (error) {
+      if (error instanceof MastraError) throw error;
+      throw new MastraError(
+        {
+          id: createStorageErrorId('CLICKHOUSE', 'CREATE_FEEDBACK', 'FAILED'),
           domain: ErrorDomain.STORAGE,
           category: ErrorCategory.THIRD_PARTY,
         },

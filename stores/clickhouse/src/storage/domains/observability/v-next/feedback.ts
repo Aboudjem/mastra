@@ -1,10 +1,19 @@
 import type { ClickHouseClient } from '@clickhouse/client';
 import { listFeedbackArgsSchema } from '@mastra/core/storage';
-import type { BatchCreateFeedbackArgs, ListFeedbackArgs, ListFeedbackResponse } from '@mastra/core/storage';
+import type {
+  BatchCreateFeedbackArgs,
+  CreateFeedbackArgs,
+  ListFeedbackArgs,
+  ListFeedbackResponse,
+} from '@mastra/core/storage';
 
 import { TABLE_FEEDBACK_EVENTS } from './ddl';
 import { buildFeedbackFilterConditions, buildPaginationClause, buildSignalOrderByClause } from './filters';
 import { CH_INSERT_SETTINGS, CH_SETTINGS, feedbackRecordToRow, rowToFeedbackRecord } from './helpers';
+
+export async function createFeedback(client: ClickHouseClient, args: CreateFeedbackArgs): Promise<void> {
+  await batchCreateFeedback(client, { feedbacks: [args.feedback] });
+}
 
 export async function batchCreateFeedback(client: ClickHouseClient, args: BatchCreateFeedbackArgs): Promise<void> {
   if (args.feedbacks.length === 0) return;

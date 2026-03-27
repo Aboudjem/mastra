@@ -1,10 +1,14 @@
 import type { ClickHouseClient } from '@clickhouse/client';
 import { listScoresArgsSchema } from '@mastra/core/storage';
-import type { BatchCreateScoresArgs, ListScoresArgs, ListScoresResponse } from '@mastra/core/storage';
+import type { BatchCreateScoresArgs, CreateScoreArgs, ListScoresArgs, ListScoresResponse } from '@mastra/core/storage';
 
 import { TABLE_SCORE_EVENTS } from './ddl';
 import { buildPaginationClause, buildScoresFilterConditions, buildSignalOrderByClause } from './filters';
 import { CH_INSERT_SETTINGS, CH_SETTINGS, rowToScoreRecord, scoreRecordToRow } from './helpers';
+
+export async function createScore(client: ClickHouseClient, args: CreateScoreArgs): Promise<void> {
+  await batchCreateScores(client, { scores: [args.score] });
+}
 
 export async function batchCreateScores(client: ClickHouseClient, args: BatchCreateScoresArgs): Promise<void> {
   if (args.scores.length === 0) return;
